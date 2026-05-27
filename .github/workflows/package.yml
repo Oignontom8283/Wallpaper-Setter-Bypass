@@ -1,0 +1,48 @@
+name: Package Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Matches v0.2, v1.0.0, etc.
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for tags
+      
+      - name: Set executable permission on packager script
+        run: chmod +x .github/scripts/packager.sh
+      
+      - name: Run packager script
+        id: package
+        run: .github/scripts/packager.sh
+      
+      - name: Display package information
+        run: |
+          echo "Package version: ${{ steps.package.outputs.VERSION }}"
+          echo "Package file: ${{ steps.package.outputs.ZIP_FILE }}"
+          ls -lh Wallpaper-Setter-Bypass_v*.zip
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Wallpaper-Setter-Bypass-v${{ steps.package.outputs.VERSION }}
+          path: Wallpaper-Setter-Bypass_v*.zip
+          retention-days: 30
+          if-no-files-found: error
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: Wallpaper-Setter-Bypass_v*.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
