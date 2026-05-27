@@ -3,11 +3,16 @@ name: Package Release
 on:
   push:
     tags:
-      - 'v*'  # Matches v0.2, v1.0.0, etc.
+      - 'v*'  # Matches v0.2, v1.0.0, v1.0.0-beta, etc.
+
+permissions:
+  contents: write
+  packages: read
 
 jobs:
   package:
     runs-on: ubuntu-latest
+    name: Build and Release Package
     
     steps:
       - name: Checkout code
@@ -20,12 +25,19 @@ jobs:
       
       - name: Run packager script
         id: package
-        run: .github/scripts/packager.sh
+        run: ./.github/scripts/packager.sh
+      
+      - name: Verify package file
+        run: |
+          ls -lh Wallpaper-Setter-Bypass_v*.zip
+          file Wallpaper-Setter-Bypass_v*.zip
       
       - name: Display package information
         run: |
-          echo "Package version: ${{ steps.package.outputs.VERSION }}"
-          echo "Package file: ${{ steps.package.outputs.ZIP_FILE }}"
+          echo "Package Information:"
+          echo "  Version: ${{ steps.package.outputs.VERSION }}"
+          echo "  File: ${{ steps.package.outputs.ZIP_FILE }}"
+          echo ""
           ls -lh Wallpaper-Setter-Bypass_v*.zip
       
       - name: Upload artifact
@@ -33,8 +45,9 @@ jobs:
         with:
           name: Wallpaper-Setter-Bypass-v${{ steps.package.outputs.VERSION }}
           path: Wallpaper-Setter-Bypass_v*.zip
-          retention-days: 30
+          retention-days: 90
           if-no-files-found: error
+          compression-level: 0  # ZIP is already compressed
       
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -44,5 +57,19 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+          body: |
+            ## Wallpaper Setter Bypass v${{ steps.package.outputs.VERSION }}
+            
+            This release includes:
+            - `wallpaper_setter.ps1` - Main PowerShell script
+            - `launcher.bat` - Windows batch launcher
+            - `README.txt` - Quick start guide
+            
+            ### Installation
+            1. Extract the ZIP file
+            2. Run `launcher.bat` or the PowerShell script directly
+            3. Follow the GUI or use CLI options
+            
+            For full documentation, visit the [GitHub repository](https://github.com/${{ github.repository }})
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
