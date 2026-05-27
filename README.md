@@ -11,14 +11,15 @@ A PowerShell application that bypasses the native Windows wallpaper settings to 
 
 ## Features
 
-- **Dual Method Support**: Choose between native Windows API or registry manipulation methods
-- **GUI Mode**: Interactive graphical interface for easy wallpaper selection
-- **CLI Mode**: Command-line interface for automation and scripting
-- **Image Scaling**: Scale up small images to screen resolution using nearest-neighbor interpolation
-- **Stretch Options**: Choose between centered or stretched wallpaper display
-- **Image Preview**: Live preview of selected images before applying
-- **Auto-Close**: Option to automatically close the application after applying wallpaper
-- **No Admin Required**: Works without administrator privileges using registry-based methods
+- [x] **Dual Method Support**: Choose between native Windows API or registry manipulation methods
+- [x] **GUI Mode**: Interactive graphical interface for easy wallpaper selection
+- [x] **GUI Mode**: Interactive graphical interface for easy wallpaper selection
+- [x] **CLI Mode**: Command-line interface for automation and scripting
+- [x] **Image Scaling**: Scale up small images to screen resolution using nearest-neighbor interpolation
+- [x] **Stretch Options**: Choose between centered or stretched wallpaper display
+- [x] **Image Preview**: Live preview of selected images before applying
+- [x] **Auto-Close**: Option to automatically close the application after applying wallpaper
+- [x] **No Admin Required**: Works without administrator privileges using registry-based methods
 
 ## Supported Image Formats
 
@@ -52,15 +53,15 @@ Or run the PowerShell script directly:
 
 This opens a window where you can:
 
-1. Click **Browse...** to select an image file
+1. Click **`Browse...`** to select an image file
 2. View the image preview on the right side
 3. Check optional options:
    - **Stretch to fill screen**: Stretches the image to fill the entire screen
    - **Scale up small images**: Enlarges images smaller than your screen resolution
    - **Close after applying**: Automatically closes the window after setting the wallpaper
    - **Use Registry method**: Use registry manipulation method instead of native Windows API (try this if the default method fails)
-4. Click **Apply** to set the wallpaper
-5. Click **Exit** to close without applying changes
+4. Click **`Apply`** to set the wallpaper
+5. Click **`Exit`** to close without applying changes
 
 ### CLI Mode (Command Line)
 
@@ -70,7 +71,7 @@ Use the following syntax for command-line usage:
 .\wallpaper_setter.ps1 -Path "C:\path\to\image.jpg" [Options]
 ```
 
-**Options:**
+#### Options:
 
 - `-Path <path>` (required): Full path to the image file
 - `-ScaleUp`: Scale up small images to screen resolution
@@ -79,7 +80,7 @@ Use the following syntax for command-line usage:
 - `-UseRegistryMethod`: Use registry manipulation method instead of native API
 - `-Help`: Display help message
 
-**Examples:**
+#### Examples:
 
 Apply an image with scaling:
 
@@ -128,7 +129,7 @@ WSB bypasses the standard Windows Settings GUI by directly modifying wallpaper c
 
 ## Troubleshooting
 
-**PowerShell execution policy error?**
+### PowerShell execution policy error?
 
 If you see "File cannot be loaded because running scripts is disabled", use the launcher batch file instead:
 
@@ -142,14 +143,14 @@ This bypasses execution policy restrictions. Alternatively, enable script execut
 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope CurrentUser
 ```
 
-**Image not applying?**
+### Image not applying?
 
 - Check that the image file path is correct
 - Verify the image file is in a supported format
 - Try using the `-UseRegistryMethod` flag if the default method doesn't work
 - Ensure the Windows Registry is accessible (not restricted by group policies)
 
-**Registry method is slow or not working?**
+### Registry method is slow or not working?
 
 The registry method may take a moment to refresh the wallpaper. If it doesn't apply immediately:
 
@@ -157,7 +158,7 @@ The registry method may take a moment to refresh the wallpaper. If it doesn't ap
 - Try applying again - sometimes the registry method requires multiple attempts to take effect
 - Use the launcher batch file if execution policy is preventing the PowerShell script from running
 
-**Preview not loading?**
+### Preview not loading?
 
 The preview may fail to load for unsupported formats. You can still apply the wallpaper using the image file path.
 
@@ -178,6 +179,6 @@ Contributions, improvements, and pull requests are welcome and greatly appreciat
 - Report issues
 - Submit pull requests with improvements
 - Suggest new features
-- ...
+- etc
 
 Enjoy!
