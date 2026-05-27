@@ -4,6 +4,11 @@
 
 Application PowerShell qui contourne l'interface native de Windows pour définir les fonds d'écran directement avec options avancées de mise à l'échelle et de style. Fonctionne sans privilèges administrateur.
 
+![Illustration of WSB GUI](./assets/gui.png)
+
+![Demo GIF Animation](./assets/demo.gif)
+
+
 ## Fonctionnalités
 
 - **Support Dual Méthode** : Choisir entre la Windows API native ou la manipulation du registre

@@ -4,6 +4,11 @@
 
 A PowerShell application that bypasses the native Windows wallpaper settings to apply wallpapers directly with advanced scaling and styling options. Works without administrator privileges.
 
+![Illustration of WSB GUI](./assets/gui.png)
+
+![Demo GIF Animation](./assets/demo.gif)
+
+
 ## Features
 
 - **Dual Method Support**: Choose between native Windows API or registry manipulation methods
