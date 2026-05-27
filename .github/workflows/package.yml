@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   package:
@@ -19,6 +19,21 @@ jobs:
       - name: Get version from tag
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+      - name: Check if prerelease or release
+        id: check_release
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          if [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "IS_RELEASE=true" >> $GITHUB_OUTPUT
+            echo "IS_PRERELEASE=false" >> $GITHUB_OUTPUT
+          elif [[ $VERSION =~ (beta|rc|alpha) ]]; then
+            echo "IS_RELEASE=true" >> $GITHUB_OUTPUT
+            echo "IS_PRERELEASE=true" >> $GITHUB_OUTPUT
+          else
+            echo "IS_RELEASE=false" >> $GITHUB_OUTPUT
+            echo "IS_PRERELEASE=false" >> $GITHUB_OUTPUT
+          fi
       
       - name: Create ZIP package
         run: |
@@ -34,3 +49,13 @@ jobs:
           name: Wallpaper-Setter-Bypass-v${{ steps.version.outputs.VERSION }}
           path: Wallpaper-Setter-Bypass_v*.zip
           retention-days: 90
+      
+      - name: Create GitHub Release
+        if: steps.check_release.outputs.IS_RELEASE == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Wallpaper-Setter-Bypass_v*.zip
+          prerelease: ${{ steps.check_release.outputs.IS_PRERELEASE }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
