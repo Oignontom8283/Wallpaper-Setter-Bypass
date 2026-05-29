@@ -265,7 +265,7 @@ $stretchCheckBox = New-Object System.Windows.Forms.CheckBox
 $stretchCheckBox.Text = 'Stretch to fill'
 $stretchCheckBox.Location = New-Object System.Drawing.Point(35, 120)
 $stretchCheckBox.Size = New-Object System.Drawing.Size(150, 22)
-$stretchCheckBox.Checked = $false
+$stretchCheckBox.Checked = $true
 $stretchCheckBox.Enabled = $true
 
 # Update stretch checkbox state based on radio button selection
@@ -312,6 +312,24 @@ $previewBox.BackColor = [System.Drawing.Color]::LightGray
 $dialog = New-Object System.Windows.Forms.OpenFileDialog
 $dialog.Filter = 'Images|*.jpg;*.jpeg;*.png;*.bmp;*.gif;*.tif;*.tiff'
 $dialog.Multiselect = $false
+
+# Create tooltip for all controls
+$tooltip = New-Object System.Windows.Forms.ToolTip
+$tooltip.AutoPopDelay = 5000
+$tooltip.InitialDelay = 500
+$tooltip.ReshowDelay = 500
+$tooltip.ShowAlways = $false
+
+# Add tooltips to controls
+$tooltip.SetToolTip($browseButton, "Browse and select an image file to set as wallpaper")
+$tooltip.SetToolTip($tileRadioButton, "Display mode: Tile repeats the image across the entire screen")
+$tooltip.SetToolTip($fullscreenRadioButton, "Display mode: Full screen displays the image centered or stretched without tiling")
+$tooltip.SetToolTip($stretchCheckBox, "When enabled: Stretches image to fill screen`nWhen disabled: Centers image on the screen (keeps aspect ratio)")
+$tooltip.SetToolTip($closeAfterCheckBox, "Automatically close the application after the wallpaper is applied")
+$tooltip.SetToolTip($useRegistryCheckBox, "Use registry method instead of Windows API (try this if the default method fails on restricted systems)")
+$tooltip.SetToolTip($applyButton, "Apply the selected wallpaper with the chosen settings")
+$tooltip.SetToolTip($exitButton, "Close the application without applying changes")
+$tooltip.SetToolTip($previewBox, "Preview of the selected image")
 
 $browseButton.Add_Click({
     if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
