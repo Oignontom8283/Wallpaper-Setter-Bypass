@@ -36,6 +36,8 @@ $UITexts = @{
     MethodFailedMessage = "SystemParametersInfo method failed. Would you like to try the Registry method?`n`nThis might work better on some systems."
     MonitorTooltip = "Select which monitor(s) the wallpaper will be applied to"
     MonitorRegistryWarning = "⚠️ Monitor selection is not supported with the Registry method (Applies globally)."
+    OK = "OK"
+    KeepClose = "Keep close"
 }
 
 if ($Help -or ([string]::IsNullOrWhiteSpace($Path) -and $Help)) {
@@ -705,11 +707,73 @@ $applyButton.Add_Click({
         }
     }
     
-    if (Set-Wallpaper -Path $selectedPath -DisplayMode $displayMode -Monitor $selectedMonitor -DoStretch $stretchCheckBox.Checked -DoSpanned $isSpanned -DoCloseAfter $closeAfterCheckBox.Checked -UseRegistryMethod $useRegistryCheckBox.Checked -IsGUIMode $true) {
-        [System.Windows.Forms.MessageBox]::Show($UITexts.WallpaperAppliedSuccess, $UITexts.Success, 'OK', 'Information') | Out-Null
-        if ($closeAfterCheckBox.Checked) {
-            $form.Close()
+if (Set-Wallpaper -Path $selectedPath -DisplayMode $displayMode -Monitor $selectedMonitor -DoStretch $stretchCheckBox.Checked -DoSpanned $isSpanned -DoCloseAfter $closeAfterCheckBox.Checked -UseRegistryMethod $useRegistryCheckBox.Checked -IsGUIMode $true) {
+        
+        # Création de la fenêtre
+        $successDialog = New-Object System.Windows.Forms.Form
+        $successDialog.Text = $UITexts.Success
+        $successDialog.ClientSize = New-Object System.Drawing.Size(380, 130) # ClientSize est plus précis que Size
+        $successDialog.StartPosition = 'CenterParent' # S'ouvre au centre de ton app principale
+        $successDialog.FormBorderStyle = 'FixedDialog'
+        $successDialog.MaximizeBox = $false
+        $successDialog.MinimizeBox = $false
+        $successDialog.ShowIcon = $false # Cache l'icône de la barre de titre (look natif)
+        $successDialog.ShowInTaskbar = $false
+        $successDialog.TopMost = $true
+        
+        # 1. ASTUCE PRO : Utiliser la police native de Windows
+        $successDialog.Font = [System.Drawing.SystemFonts]::MessageBoxFont
+        
+        # 2. ASTUCE PRO : Ajouter l'icône "Information" native
+        $iconBox = New-Object System.Windows.Forms.PictureBox
+        $iconBox.Image = [System.Drawing.SystemIcons]::Information.ToBitmap()
+        $iconBox.Location = New-Object System.Drawing.Point(20, 25)
+        $iconBox.Size = New-Object System.Drawing.Size(32, 32)
+        
+        # Le texte du message
+        $messageLabel = New-Object System.Windows.Forms.Label
+        $messageLabel.Text = $UITexts.WallpaperAppliedSuccess
+        $messageLabel.Location = New-Object System.Drawing.Point(65, 30)
+        $messageLabel.AutoSize = $true
+        $messageLabel.MaximumSize = New-Object System.Drawing.Size(300, 0) # Gère les retours à la ligne si le texte est long
+        
+        # Bouton OK
+        $okButton = New-Object System.Windows.Forms.Button
+        $okButton.Text = $UITexts.OK
+        $okButton.Size = New-Object System.Drawing.Size(85, 26)
+        $okButton.Location = New-Object System.Drawing.Point(185, 85) # Aligné sur la droite
+        $okButton.FlatStyle = 'System' # Force le rendu visuel natif de Windows
+        $okButton.DialogResult = 'Yes'
+        
+        # Bouton Keep Close
+        $keepCloseButton = New-Object System.Windows.Forms.Button
+        $keepCloseButton.Text = $UITexts.KeepClose
+        $keepCloseButton.Size = New-Object System.Drawing.Size(85, 26)
+        $keepCloseButton.Location = New-Object System.Drawing.Point(275, 85) # Aligné sur la droite
+        $keepCloseButton.FlatStyle = 'System' # Force le rendu visuel natif de Windows
+        $keepCloseButton.DialogResult = 'No'
+        
+        # Lier les touches "Entrée" et "Echap" du clavier aux boutons
+        $successDialog.AcceptButton = $okButton
+        $successDialog.CancelButton = $keepCloseButton
+        
+        # Ajout des contrôles
+        $successDialog.Controls.Add($iconBox)
+        $successDialog.Controls.Add($messageLabel)
+        $successDialog.Controls.Add($okButton)
+        $successDialog.Controls.Add($keepCloseButton)
+        
+        # Affichage
+        # Note : Pas besoin de '$successDialog.Close()' dans les boutons. 
+        # Assigner un 'DialogResult' à un bouton ferme automatiquement la fenêtre lors du clic.
+        $dialogResult = $successDialog.ShowDialog()
+        
+        if ($dialogResult -eq 'Yes') {
+            $form.Close() # Ferme l'application principale
         }
+        
+        # Libération propre de la mémoire
+        $successDialog.Dispose()
     }
 })
 
