@@ -1,6 +1,6 @@
 # Wallpaper Setter Bypass (WSB)
 
-<img src="https://img.shields.io/badge/Target-Windows-green?style=flat" alt="Target Hardware"/> &nbsp; <img src="https://img.shields.io/github/v/release/Oignontom8283/eadkp?include_prereleases&style=flat&logo=github" alt="Version"/>
+<img src="https://img.shields.io/badge/Target-Windows-green?style=flat" alt="Target Hardware"/> &nbsp; <img src="https://img.shields.io/github/v/release/Oignontom8283/Wallpaper-Setter-Bypass?include_prereleases&style=flat&logo=github" alt="Version"/>
 
 
 **Français** | [English](README.md)
