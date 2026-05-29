@@ -570,21 +570,21 @@ $monitorComboBox = New-Object System.Windows.Forms.ComboBox
 $monitorComboBox.Location = New-Object System.Drawing.Point(85, 50)
 $monitorComboBox.Size = New-Object System.Drawing.Size(200, 22)
 $monitorComboBox.DropDownStyle = 'DropDownList'
-$monitorComboBox.Items.Add('Current')
-$monitorComboBox.Items.Add('Primary')
+[void]$monitorComboBox.Items.Add('Current')
+[void]$monitorComboBox.Items.Add('Primary')
 
 # Get monitor info and add to dropdown - include ALL monitors
 $monitors = Get-MonitorList
 if ($monitors) {
     foreach ($m in $monitors) {
         if ($m.Name) {
-            $monitorComboBox.Items.Add($m.Name)
+            [void]$monitorComboBox.Items.Add($m.Name)
         }
     }
 }
 
-$monitorComboBox.Items.Add('All')
-$monitorComboBox.Items.Add('Spanned')
+[void]$monitorComboBox.Items.Add('All')
+[void]$monitorComboBox.Items.Add('Spanned')
 $monitorComboBox.SelectedIndex = 0
 
 $useRegistryCheckBox = New-Object System.Windows.Forms.CheckBox
