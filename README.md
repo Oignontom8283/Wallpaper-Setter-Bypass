@@ -70,7 +70,6 @@ This opens a window where you can:
 5. In fullscreen mode, check optional options:
    - **Stretch to fill**: Stretches the image to fill the entire screen (otherwise it will be centered)
 6. Check other options:
-   - **Close after applying**: Automatically closes the window after setting the wallpaper
    - **Use Registry method**: Use registry manipulation method instead of native Windows API (try this if the default method fails)
 7. Click **`Apply`** to set the wallpaper
 8. Click **`Exit`** to close without applying changes

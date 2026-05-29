@@ -57,19 +57,18 @@ Cela ouvre une fenêtre où vous pouvez :
 1. Cliquer sur **`Browse...`** pour sélectionner un fichier image
 2. Voir l'aperçu de l'image sur le côté droit
 3. Sélectionner le moniteur cible :
-   - **Actuel** : Le moniteur où se trouve la fenêtre de l'application
-   - **Principal** : Le moniteur système principal
+   - **Current (Actuel)** : Le moniteur où se trouve la fenêtre de l'application
+   - **Primary (Principal)** : Le moniteur système principal
    - **DISPLAY#** : Moniteur spécifique par son nom matériel
-   - **Tous** : Appliquer la même image à tous les moniteurs
-   - **Étendue** : Étendre une seule image sur tous les moniteurs connectés
+   - **All (Tous)** : Appliquer la même image à tous les moniteurs
+   - **Spanned (Étendue)** : Étendre une seule image sur tous les moniteurs connectés
 4. Sélectionner le mode d'affichage :
    - **Tiler (répéter)** : Répète l'image sur tout l'écran
-   - **Plein écran** : Affiche l'image en plein écran
+   - **Full screen** : Affiche l'image en plein écran
 5. En mode plein écran, cocher les options souhaitées :
-   - **Étirer pour remplir** : Étire l'image pour remplir tout l'écran (sinon elle sera centrée)
+   - **Stretch to fill (Étirer l'image)** : Étire l'image pour remplir tout l'écran (sinon elle sera centrée)
 6. Cocher les autres options :
-   - **Fermer après application** : Ferme automatiquement la fenêtre après la définition du fond d'écran
-   - **Utiliser la méthode Registre** : Utiliser la manipulation du registre au lieu de l'API Windows native (essayer ceci si la méthode par défaut échoue)
+   - **Use Registry method (Manipulation du registre)** : Utiliser la manipulation du registre au lieu de l'API Windows native (essayer ceci si la méthode par défaut échoue)
 7. Cliquer sur **`Apply`** pour définir le fond d'écran
 8. Cliquer sur **`Exit`** pour fermer sans appliquer les modifications
 
