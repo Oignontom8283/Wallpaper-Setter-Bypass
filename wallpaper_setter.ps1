@@ -54,6 +54,14 @@ Add-Type @'
 using System;
 using System.Runtime.InteropServices;
 
+[StructLayout(LayoutKind.Sequential)]
+public struct RECT {
+    public int Left;
+    public int Top;
+    public int Right;
+    public int Bottom;
+}
+
 [ComImport]
 [Guid("B92B56A9-8B55-4E14-9A89-0199BBB6F93B")]
 [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -62,7 +70,7 @@ public interface IDesktopWallpaperV2 {
     [return: MarshalAs(UnmanagedType.LPWStr)] string GetWallpaper([MarshalAs(UnmanagedType.LPWStr)] string monitorID);
     [return: MarshalAs(UnmanagedType.LPWStr)] string GetMonitorDevicePathAt(uint monitorIndex);
     uint GetMonitorDevicePathCount();
-    void GetMonitorRECT([MarshalAs(UnmanagedType.LPWStr)] string monitorID, out int displayRect);
+    void GetMonitorRECT([MarshalAs(UnmanagedType.LPWStr)] string monitorID, out RECT displayRect);
     void SetBackgroundColor(uint color);
     uint GetBackgroundColor();
     void SetPosition(uint position);
@@ -89,24 +97,30 @@ public static class WallpaperNativeV2 {
         dw.SetWallpaper(null, path);
     }
     
-    public static void SetWallpaperMonitor(string targetDisplay, string path) {
+    public static void SetWallpaperMonitorByRect(int left, int top, string path) {
         var dw = (IDesktopWallpaperV2)new DesktopWallpaperV2();
         uint count = dw.GetMonitorDevicePathCount();
-        string shortDisplay = targetDisplay.Replace("\\\\.\\", "").ToUpper();
         
         for (uint i = 0; i < count; i++) {
             string devPath = dw.GetMonitorDevicePathAt(i);
-            if (devPath != null && devPath.ToUpper().Contains(shortDisplay)) {
+            RECT r;
+            dw.GetMonitorRECT(devPath, out r);
+            if (r.Left == left && r.Top == top) {
                 dw.SetWallpaper(devPath, path);
                 return;
             }
         }
         
-        uint idx;
-        if (uint.TryParse(targetDisplay, out idx) && idx < count) {
-            dw.SetWallpaper(dw.GetMonitorDevicePathAt(idx), path);
-        } else if (count > 0) {
+        if (count > 0) {
             dw.SetWallpaper(dw.GetMonitorDevicePathAt(0), path);
+        }
+    }
+    
+    public static void SetWallpaperMonitorByIndex(uint idx, string path) {
+        var dw = (IDesktopWallpaperV2)new DesktopWallpaperV2();
+        uint count = dw.GetMonitorDevicePathCount();
+        if (idx < count) {
+            dw.SetWallpaper(dw.GetMonitorDevicePathAt(idx), path);
         }
     }
     
@@ -219,11 +233,33 @@ function Set-WallpaperNative {
         
         if ($MonitorValue -eq "all") {
             [WallpaperNativeV2]::SetWallpaperAll($Path)
-        } elseif ($MonitorValue -eq "primary") {
-            $primaryDevice = [System.Windows.Forms.Screen]::PrimaryScreen.DeviceName
-            [WallpaperNativeV2]::SetWallpaperMonitor($primaryDevice, $Path)
         } else {
-            [WallpaperNativeV2]::SetWallpaperMonitor($MonitorValue, $Path)
+            $targetScreen = $null
+            if ($MonitorValue -eq "primary") {
+                $targetScreen = [System.Windows.Forms.Screen]::PrimaryScreen
+            } else {
+                foreach ($s in [System.Windows.Forms.Screen]::AllScreens) {
+                    if ($s.DeviceName -eq $MonitorValue) {
+                        $targetScreen = $s
+                        break
+                    }
+                }
+                if (-not $targetScreen -and $MonitorValue -match '^\d+$') {
+                    $idx = [int]$MonitorValue
+                    $screens = [System.Windows.Forms.Screen]::AllScreens
+                    if ($idx -lt $screens.Count) {
+                        $targetScreen = $screens[$idx]
+                    }
+                }
+            }
+            
+            if ($targetScreen) {
+                Write-Host "[DEBUG] Screen '$MonitorValue' matched to bounds Left: $($targetScreen.Bounds.Left), Top: $($targetScreen.Bounds.Top)" -ForegroundColor Yellow
+                [WallpaperNativeV2]::SetWallpaperMonitorByRect($targetScreen.Bounds.Left, $targetScreen.Bounds.Top, $Path)
+            } else {
+                Write-Host "[WARNING] Screen '$MonitorValue' not found, falling back to index 0" -ForegroundColor DarkYellow
+                [WallpaperNativeV2]::SetWallpaperMonitorByIndex(0, $Path)
+            }
         }
         
         Write-Host "[SUCCESS] Native method succeeded"
