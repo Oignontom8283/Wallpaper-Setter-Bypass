@@ -53,65 +53,118 @@ Add-Type -AssemblyName System.Drawing
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
-public static class WallpaperNative {
+
+[ComImport]
+[Guid("B92B56A9-8B55-4E14-9A89-0199BBB6F93B")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IDesktopWallpaperV2 {
+    void SetWallpaper([MarshalAs(UnmanagedType.LPWStr)] string monitorID, [MarshalAs(UnmanagedType.LPWStr)] string wallpaper);
+    [return: MarshalAs(UnmanagedType.LPWStr)] string GetWallpaper([MarshalAs(UnmanagedType.LPWStr)] string monitorID);
+    [return: MarshalAs(UnmanagedType.LPWStr)] string GetMonitorDevicePathAt(uint monitorIndex);
+    uint GetMonitorDevicePathCount();
+    void GetMonitorRECT([MarshalAs(UnmanagedType.LPWStr)] string monitorID, out int displayRect);
+    void SetBackgroundColor(uint color);
+    uint GetBackgroundColor();
+    void SetPosition(uint position);
+    uint GetPosition();
+    void SetSlideshow(IntPtr items);
+    IntPtr GetSlideshow();
+    void SetSlideshowOptions(uint options, uint slideshowTick);
+    void GetSlideshowOptions(out uint options, out uint slideshowTick);
+    void AdvanceSlideshow([MarshalAs(UnmanagedType.LPWStr)] string monitorID, uint direction);
+    uint GetStatus();
+    void Enable(bool enable);
+}
+
+[ComImport]
+[Guid("C2CF3110-460E-4fc1-B9D0-8A1C0C9CC4BD")]
+public class DesktopWallpaperV2 { }
+
+public static class WallpaperNativeV2 {
     [DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
     public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+    
+    public static void SetWallpaperAll(string path) {
+        var dw = (IDesktopWallpaperV2)new DesktopWallpaperV2();
+        dw.SetWallpaper(null, path);
+    }
+    
+    public static void SetWallpaperMonitor(string targetDisplay, string path) {
+        var dw = (IDesktopWallpaperV2)new DesktopWallpaperV2();
+        uint count = dw.GetMonitorDevicePathCount();
+        string shortDisplay = targetDisplay.Replace("\\\\.\\", "").ToUpper();
+        
+        for (uint i = 0; i < count; i++) {
+            string devPath = dw.GetMonitorDevicePathAt(i);
+            if (devPath != null && devPath.ToUpper().Contains(shortDisplay)) {
+                dw.SetWallpaper(devPath, path);
+                return;
+            }
+        }
+        
+        uint idx;
+        if (uint.TryParse(targetDisplay, out idx) && idx < count) {
+            dw.SetWallpaper(dw.GetMonitorDevicePathAt(idx), path);
+        } else if (count > 0) {
+            dw.SetWallpaper(dw.GetMonitorDevicePathAt(0), path);
+        }
+    }
+    
+    public static uint GetMonitorCount() {
+        var dw = (IDesktopWallpaperV2)new DesktopWallpaperV2();
+        return dw.GetMonitorDevicePathCount();
+    }
 }
-'@
+'@ -ErrorAction SilentlyContinue
 
 function Get-MonitorList {
     try {
-        # Try using WMI first
+        $screens = [System.Windows.Forms.Screen]::AllScreens
         $monitors = @()
         
-        # Get monitor info from Windows
+        # Tentative de récupération des vrais noms de modèles via WMI (EDID)
+        $hardwareNames = @()
         try {
-            $displayDevices = Get-WmiObject -Class Win32_PnPDevice -Filter "ClassGuid='{4d36e96e-e325-11ce-bfc1-08002be10318()}'" -ErrorAction SilentlyContinue
-            
-            if ($displayDevices) {
-                $index = 0
-                foreach ($device in @($displayDevices)) {
-                    $monitorObj = [PSCustomObject]@{
-                        Index = $index
-                        Name = $device.Name
-                        IsPrimary = ($index -eq 0)
-                        Screen = $null
+            $wmiMonitors = Get-WmiObject -Namespace root\wmi -Class WmiMonitorID -ErrorAction SilentlyContinue
+            foreach ($wm in $wmiMonitors) {
+                if ($wm.Active) {
+                    $nameStr = ""
+                    foreach ($char in $wm.UserFriendlyName) {
+                        if ($char -ne 0) { $nameStr += [char]$char }
                     }
-                    $monitors += $monitorObj
-                    Write-Host "[DEBUG GET-MONITORLIST] Monitor $index : $($device.Name)"
-                    $index++
+                    if (![string]::IsNullOrWhiteSpace($nameStr)) {
+                        $hardwareNames += $nameStr.Trim()
+                    }
                 }
             }
-        } catch {
-            Write-Host "[WARNING] WMI method failed, falling back to Screen API"
-        }
+        } catch { }
         
-        # Fallback to Screen API if WMI doesn't work
-        if ($monitors.Count -eq 0) {
-            $screens = [System.Windows.Forms.Screen]::AllScreens
+        for ($i = 0; $i -lt $screens.Count; $i++) {
+            $screen = $screens[$i]
+            $isPrimary = $screen.Primary
             
-            for ($i = 0; $i -lt @($screens).Count; $i++) {
-                $screen = @($screens)[$i]
-                $isPrimary = $screen.Primary
-                $name = "Monitor {0}" -f $i
-                if ($isPrimary) {
-                    $name = "Monitor {0} (Primary)" -f $i
-                }
-                
-                Write-Host "[DEBUG GET-MONITORLIST] Screen API - Monitor $i : $name"
-                
-                $monitorObj = [PSCustomObject]@{
-                    Index = $i
-                    Name = $name
-                    IsPrimary = $isPrimary
-                    Screen = $screen
-                }
-                $monitors += $monitorObj
+            # Formate le nom comme "DISPLAY1" ou ajoute "(Primary)"
+            $name = $screen.DeviceName -replace '\\\\\.\\', ''
+            if ($isPrimary) {
+                $name = "$name (Primary)"
+            } else {
+                $name = "$name (Monitor $($i + 1))"
+            }
+            
+            # Ajoute le nom du modèle (ex: LG-PO781K) s'il a pu être récupéré
+            if ($i -lt $hardwareNames.Count -and $hardwareNames[$i]) {
+                $name = "$name - $($hardwareNames[$i])"
+            }
+            
+            $monitors += [PSCustomObject]@{
+                Index = $i
+                Name = $name
+                IsPrimary = $isPrimary
+                Screen = $screen
             }
         }
         
-        Write-Host "[DEBUG GET-MONITORLIST] Found $($monitors.Count) monitors, type: $($monitors.GetType().Name)"
-        return $monitors
+        return ,$monitors # La virgule empêche PowerShell de désassembler le tableau s'il n'y a qu'un moniteur
     } catch {
         Write-Host "[ERROR] Failed to get monitor list: $_"
         return @()
@@ -157,17 +210,33 @@ function Test-ImageFile {
 
 function Set-WallpaperNative {
     param(
-        [string]$Path
+        [string]$Path,
+        [string]$MonitorValue = "all"
     )
     
     try {
-        Write-Host "[INFO] Attempting SystemParametersInfo method..."
-        [WallpaperNative]::SystemParametersInfo(20, 0, $Path, 3) | Out-Null
-        Write-Host "[SUCCESS] SystemParametersInfo method succeeded"
+        Write-Host "[INFO] Attempting COM IDesktopWallpaper method for monitor: $MonitorValue..."
+        
+        if ($MonitorValue -eq "all") {
+            [WallpaperNativeV2]::SetWallpaperAll($Path)
+        } elseif ($MonitorValue -eq "primary") {
+            $primaryDevice = [System.Windows.Forms.Screen]::PrimaryScreen.DeviceName
+            [WallpaperNativeV2]::SetWallpaperMonitor($primaryDevice, $Path)
+        } else {
+            [WallpaperNativeV2]::SetWallpaperMonitor($MonitorValue, $Path)
+        }
+        
+        Write-Host "[SUCCESS] Native method succeeded"
         return $true
     } catch {
-        Write-Host "[ERROR] SystemParametersInfo method failed: $($_.Exception.Message)"
-        return $false
+        Write-Host "[ERROR] COM Native method failed: $($_.Exception.Message)"
+        Write-Host "[INFO] Falling back to SystemParametersInfo..."
+        try {
+            [WallpaperNativeV2]::SystemParametersInfo(20, 0, $Path, 3) | Out-Null
+            return $true
+        } catch {
+            return $false
+        }
     }
 }
 
@@ -326,7 +395,7 @@ function Set-Wallpaper {
         $success = Set-WallpaperRegistry -Path $walpaperPath -DisplayMode $DisplayMode
     } else {
         # Try native method first
-        $success = Set-WallpaperNative -Path $walpaperPath
+        $success = Set-WallpaperNative -Path $walpaperPath -MonitorValue $Monitor
         
         # If native fails and we're in GUI mode, ask user to try registry method
         if (-not $success -and $IsGUIMode) {
@@ -441,15 +510,11 @@ $monitorComboBox.Items.Add('Primary')
 
 # Get monitor info and add to dropdown - include ALL monitors
 $monitors = Get-MonitorList
-Write-Host "[DEBUG] Found $(@($monitors).Count) monitors"
-Write-Host "[DEBUG] Monitors object type: $($monitors.GetType().Name)"
-for ($i = 0; $i -lt @($monitors).Count; $i++) {
-    $monitor = @($monitors)[$i]
-    Write-Host "[DEBUG] Monitor ${i} - Object type: $($monitor.GetType().Name)"
-    Write-Host "[DEBUG] Monitor ${i} - Object: $($monitor | Out-String)"
-    Write-Host "[DEBUG] Monitor ${i}: Name='$($monitor.Name)'"
-    if ($monitor.Name) {
-        $monitorComboBox.Items.Add($monitor.Name)
+if ($monitors) {
+    foreach ($m in $monitors) {
+        if ($m.Name) {
+            $monitorComboBox.Items.Add($m.Name)
+        }
     }
 }
 
@@ -540,15 +605,26 @@ $applyButton.Add_Click({
     if ($monitorSelection -eq 'Spanned') {
         $isSpanned = $true
     } elseif ($monitorSelection -eq 'Current') {
-        $focusedMonitorIndex = Get-FocusedMonitor
-        $selectedMonitor = $focusedMonitorIndex.ToString()
+        # Chercher l'écran à partir du centre exact de la fenêtre
+        $centerX = $form.Location.X + ($form.Width / 2)
+        $centerY = $form.Location.Y + ($form.Height / 2)
+        $screen = [System.Windows.Forms.Screen]::FromPoint([System.Drawing.Point]::new($centerX, $centerY))
+        $selectedMonitor = $screen.DeviceName
+        Write-Host "[DEBUG] 'Current' option resolved to screen: $selectedMonitor (from X:$centerX, Y:$centerY)" -ForegroundColor Yellow
     } elseif ($monitorSelection -eq 'All') {
         $selectedMonitor = "all"
     } elseif ($monitorSelection -eq 'Primary') {
-        $selectedMonitor = "primary"
+        $selectedMonitor = [System.Windows.Forms.Screen]::PrimaryScreen.DeviceName
+        Write-Host "[DEBUG] 'Primary' option resolved to screen: $selectedMonitor" -ForegroundColor Yellow
     } else {
-        # If it's a specific monitor name, use it
-        $selectedMonitor = $monitorSelection
+        # Find the specific monitor chosen from the drop-down
+        $selectedMonitor = "primary"
+        foreach ($m in $monitors) {
+            if ($m.Name -eq $monitorSelection) {
+                $selectedMonitor = $m.Screen.DeviceName
+                break
+            }
+        }
     }
     
     if (Set-Wallpaper -Path $selectedPath -DisplayMode $displayMode -Monitor $selectedMonitor -DoStretch $stretchCheckBox.Checked -DoSpanned $isSpanned -DoCloseAfter $closeAfterCheckBox.Checked -UseRegistryMethod $useRegistryCheckBox.Checked -IsGUIMode $true) {
