@@ -15,11 +15,10 @@ Application PowerShell qui contourne l'interface native de Windows pour définir
 - [x] **Mode GUI** : Interface graphique interactive pour une sélection facile du fond d'écran
 - [x] **Mode CLI** : Interface en ligne de commande pour l'automatisation et les scripts
 - [x] **Validation d'image** : Validation automatique pour détecter les fichiers image corrompus ou invalides
-- [x] **Mise à l'échelle d'images** : Agrandir les petites images à la résolution de l'écran avec interpolation au plus proche voisin
-- [x] **Options d'étirement** : Choisir entre affichage centré ou étiré du fond d'écran
+- [x] **Modes d'affichage** : Choisir entre Tiler (répétition) ou Plein écran
+- [x] **Options d'étirement** : En mode plein écran, choisir entre centré ou étiré
 - [x] **Aperçu d'image** : Aperçu en direct de l'image sélectionnée avant application
 - [x] **Fermeture automatique** : Option de fermeture automatique après application du fond d'écran
-- [x] **Nettoyage automatique** : Supprime automatiquement les images temporaires agrandies après application
 - [x] **Pas de Droits Admin** : Fonctionne sans privilèges administrateur en utilisant les méthodes basées sur le registre
 
 ## Formats d'image supportés
@@ -56,13 +55,16 @@ Cela ouvre une fenêtre où vous pouvez :
 
 1. Cliquer sur **`Browse...`** pour sélectionner un fichier image
 2. Voir l'aperçu de l'image sur le côté droit
-3. Cocher les options souhaitées :
-   - **Étirer pour remplir l'écran** : Étire l'image pour remplir tout l'écran
-   - **Agrandir les petites images** : Agrandit les images plus petites que la résolution de votre écran
+3. Sélectionner le mode d'affichage :
+   - **Tiler (répéter)** : Répète l'image sur tout l'écran
+   - **Plein écran** : Affiche l'image en plein écran
+4. En mode plein écran, cocher les options souhaitées :
+   - **Étirer pour remplir** : Étire l'image pour remplir tout l'écran (sinon elle sera centrée)
+5. Cocher les autres options :
    - **Fermer après application** : Ferme automatiquement la fenêtre après la définition du fond d'écran
    - **Utiliser la méthode Registre** : Utiliser la manipulation du registre au lieu de l'API Windows native (essayer ceci si la méthode par défaut échoue)
-4. Cliquer sur **`Apply`** pour définir le fond d'écran
-5. Cliquer sur **`Exit`** pour fermer sans appliquer les modifications
+6. Cliquer sur **`Apply`** pour définir le fond d'écran
+7. Cliquer sur **`Exit`** pour fermer sans appliquer les modifications
 
 ### Mode CLI (Ligne de commande)
 
@@ -72,8 +74,8 @@ Utilisez la syntaxe suivante pour l'utilisation en ligne de commande :
 .\wallpaper_setter.ps1 -Path "C:\chemin\vers\image.jpg" [Options]
 ```
 
-#### Options :
-
+####DisplayMode <mode>` : Mode d'affichage : `tile` (répétition) ou `fullscreen` (plein écran, défaut)
+- `-Stretch` : Étirer l'image pour remplir l'écran (mode plein écran uniquement)
 - `-Path <chemin>` (obligatoire) : Chemin complet du fichier image
 - `-ScaleUp` : Agrandir les petites images à la résolution de l'écran
 - `-Stretch` : Étirer l'image pour remplir l'écran au lieu de maintenir le rapport d'aspect
@@ -83,22 +85,28 @@ Utilisez la syntaxe suivante pour l'utilisation en ligne de commande :
 
 #### Exemples :
 
-Appliquer une image avec mise à l'échelle :
+Appliquer une image en mode plein écran centré :
 
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\Users\MonUtilisateur\Images\image.jpg" -ScaleUp
+.\wallpaper_setter.ps1 -Path "C:\Users\MonUtilisateur\Images\image.jpg" -DisplayMode fullscreen
 ```
 
-Appliquer une image étirée pour remplir l'écran :
+Appliquer une image en mode plein écran étiré :
 
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\Users\MonUtilisateur\Images\image.jpg" -Stretch
+.\wallpaper_setter.ps1 -Path "C:\Users\MonUtilisateur\Images\image.jpg" -DisplayMode fullscreen -Stretch
 ```
 
-Appliquer une image avec toutes les options et fermeture automatique :
+Appliquer une image en mode Tiler (répétition) :
 
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\Users\MonUtilisateur\Images\image.jpg" -ScaleUp -Stretch -CloseAfter
+.\wallpaper_setter.ps1 -Path "C:\Users\MonUtilisateur\Images\image.jpg" -DisplayMode tile
+```
+
+Appliquer une image avec fermeture automatique :
+
+```powershell
+.\wallpaper_setter.ps1 -Path "C:\Users\MonUtilisateur\Images\image.jpg" -DisplayMode fullscreen -Stretch -CloseAfter
 ```
 
 Appliquer une image en utilisant la méthode Registre :
@@ -112,13 +120,16 @@ Afficher l'aide :
 ```powershell
 .\wallpaper_setter.ps1 -Help
 ```
-
-## Fonctionnement
-
-WSB contourne les Paramètres Windows standard en modifiant directement la configuration du fond d'écran :
-
-1. **Mode GUI** : Lance une fenêtre interactive utilisant Windows Forms pour sélectionner et configurer les paramètres du fond d'écran
-2. **Mise à l'échelle d'image** : Si la mise à l'échelle est activée, l'image est agrandie en utilisant l'interpolation au plus proche voisin pour correspondre à la résolution de votre écran tout en maintenant la qualité
+odes d'affichage** : 
+   - **Tiler** : Répète l'image sur tout l'écran (WallpaperStyle=1, TileWallpaper=1)
+   - **Plein écran centré** : Affiche l'image centrée sans répétition (WallpaperStyle=6, TileWallpaper=0)
+   - **Plein écran étiré** : Affiche l'image étirée pour remplir l'écran (WallpaperStyle=2, TileWallpaper=0)
+3. **Approche Dual Méthode** :
+   - **Méthode par défaut** : Utilise l'API Windows native (`SystemParametersInfo`) pour rafraîchir directement le fond d'écran
+   - **Méthode Registre** : Manipule directement les paramètres du registre Windows :
+     - `Wallpaper` : Chemin vers l'image de fond d'écran
+     - `WallpaperStyle` : 1 pour tiler, 2 pour étirer, 6 pour centrer
+     - `TileWallpaper` : 1 pour tiler, 0 pour non-tilinge est activée, l'image est agrandie en utilisant l'interpolation au plus proche voisin pour correspondre à la résolution de votre écran tout en maintenant la qualité
 3. **Approche Dual Méthode** :
    - **Méthode par défaut** : Utilise l'API Windows native (`SystemParametersInfo`) pour rafraîchir directement le fond d'écran
    - **Méthode Registre** : Manipule directement les paramètres du registre Windows :

@@ -17,11 +17,10 @@ A PowerShell application that bypasses the native Windows wallpaper settings to 
 - [x] **GUI Mode**: Interactive graphical interface for easy wallpaper selection
 - [x] **CLI Mode**: Command-line interface for automation and scripting
 - [x] **Image Validation**: Automatic validation to detect corrupted or invalid image files
-- [x] **Image Scaling**: Scale up small images to screen resolution using nearest-neighbor interpolation
-- [x] **Stretch Options**: Choose between centered or stretched wallpaper display
+- [x] **Display Modes**: Choose between Tile (repeat) or Fullscreen display
+- [x] **Stretch Options**: In fullscreen mode, choose between centered or stretched display
 - [x] **Image Preview**: Live preview of selected images before applying
 - [x] **Auto-Close**: Option to automatically close the application after applying wallpaper
-- [x] **Auto Cleanup**: Automatically removes temporary scaled images after wallpaper is applied
 - [x] **No Admin Required**: Works without administrator privileges using registry-based methods
 
 ## Supported Image Formats
@@ -58,13 +57,16 @@ This opens a window where you can:
 
 1. Click **`Browse...`** to select an image file
 2. View the image preview on the right side
-3. Check optional options:
-   - **Stretch to fill screen**: Stretches the image to fill the entire screen
-   - **Scale up small images**: Enlarges images smaller than your screen resolution
+3. Select the display mode:
+   - **Tile (repeat)**: Repeats the image across the entire screen
+   - **Full screen**: Displays the image in full screen
+4. In fullscreen mode, check optional options:
+   - **Stretch to fill**: Stretches the image to fill the entire screen (otherwise it will be centered)
+5. Check other options:
    - **Close after applying**: Automatically closes the window after setting the wallpaper
    - **Use Registry method**: Use registry manipulation method instead of native Windows API (try this if the default method fails)
-4. Click **`Apply`** to set the wallpaper
-5. Click **`Exit`** to close without applying changes
+6. Click **`Apply`** to set the wallpaper
+7. Click **`Exit`** to close without applying changes
 
 ### CLI Mode (Command Line)
 
@@ -74,8 +76,8 @@ Use the following syntax for command-line usage:
 .\wallpaper_setter.ps1 -Path "C:\path\to\image.jpg" [Options]
 ```
 
-#### Options:
-
+####DisplayMode <mode>`: Display mode: `tile` (repeat) or `fullscreen` (default)
+- `-Stretch`: Stretch image to fill screen (fullscreen mode only)
 - `-Path <path>` (required): Full path to the image file
 - `-ScaleUp`: Scale up small images to screen resolution
 - `-Stretch`: Stretch image to fill screen instead of maintaining aspect ratio
@@ -85,22 +87,28 @@ Use the following syntax for command-line usage:
 
 #### Examples:
 
-Apply an image with scaling:
+Apply an image in fullscreen centered mode:
 
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\Users\MyUser\Pictures\image.jpg" -ScaleUp
+.\wallpaper_setter.ps1 -Path "C:\Users\MyUser\Pictures\image.jpg" -DisplayMode fullscreen
 ```
 
-Apply an image stretched to fill the screen:
+Apply an image in fullscreen stretched mode:
 
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\Users\MyUser\Pictures\image.jpg" -Stretch
+.\wallpaper_setter.ps1 -Path "C:\Users\MyUser\Pictures\image.jpg" -DisplayMode fullscreen -Stretch
 ```
 
-Apply an image with all options and auto-close:
+Apply an image in tile mode (repeat):
 
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\Users\MyUser\Pictures\image.jpg" -ScaleUp -Stretch -CloseAfter
+.\wallpaper_setter.ps1 -Path "C:\Users\MyUser\Pictures\image.jpg" -DisplayMode tile
+```
+
+Apply an image with auto-close:
+
+```powershell
+.\wallpaper_setter.ps1 -Path "C:\Users\MyUser\Pictures\image.jpg" -DisplayMode fullscreen -Stretch -CloseAfter
 ```
 
 Apply an image using the registry method:
@@ -120,13 +128,16 @@ View help:
 WSB bypasses the standard Windows Settings GUI by directly modifying wallpaper configuration:
 
 1. **GUI Mode**: Launches an interactive window using Windows Forms to select and configure wallpaper settings
-2. **Image Scaling**: If scaling is enabled, the image is enlarged using nearest-neighbor interpolation to match your screen resolution while maintaining quality
+2. **Display Modes**:
+   - **Tile**: Repeats the image across the entire screen (WallpaperStyle=1, TileWallpaper=1)
+   - **Fullscreen Centered**: Displays the image centered without repetition (WallpaperStyle=6, TileWallpaper=0)
+   - **Fullscreen Stretched**: Displays the image stretched to fill the screen (WallpaperStyle=2, TileWallpaper=0)
 3. **Dual Method Approach**:
    - **Default Method**: Uses native Windows API (`SystemParametersInfo`) for direct wallpaper refresh
    - **Registry Method**: Directly manipulates Windows registry settings:
      - `Wallpaper`: Path to the wallpaper image
-     - `WallpaperStyle`: 2 for stretch, 6 for centered
-     - `TileWallpaper`: Set to 0 (no tiling)
+     - `WallpaperStyle`: 1 for tile, 2 for stretch, 6 for centered
+     - `TileWallpaper`: 1 for tiling, 0 for no tiling
 4. **Fallback Strategy**: If the default method fails in GUI mode, automatically offers to try the registry method
 5. **Desktop Refresh**: Triggers immediate wallpaper display without requiring system restart
 
