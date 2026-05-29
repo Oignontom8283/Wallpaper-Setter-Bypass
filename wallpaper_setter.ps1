@@ -1,7 +1,9 @@
-param(
+﻿param(
     [string]$Path,
     [string]$DisplayMode = "fullscreen",
+    [string]$Monitor = "primary",
     [switch]$Stretch,
+    [switch]$Spanned,
     [switch]$CloseAfter,
     [switch]$UseRegistryMethod,
     [switch]$Help
@@ -19,7 +21,9 @@ Usage:
 Options:
   -Path <path>         Set the wallpaper directly (CLI mode, no GUI)
   -DisplayMode         Display mode: 'tile' or 'fullscreen' (default: fullscreen)
-  -Stretch             Stretch image to fill screen instead of maintaining aspect ratio (for fullscreen mode)
+  -Monitor <monitor>   Target monitor: 'primary', 'all', 'index' (0, 1, 2...) (default: primary)
+  -Stretch             Stretch image to fill screen (fullscreen mode only)
+  -Spanned             Apply as single spanned wallpaper across all monitors
   -CloseAfter          Close the application after applying wallpaper
   -UseRegistryMethod   Use registry manipulation method instead of SystemParametersInfo
   -Help                Show this help message
@@ -28,14 +32,17 @@ Examples:
   # Interactive GUI mode
   .\wallpaper_setter.ps1
 
-  # CLI mode - apply image as tiled
-  .\wallpaper_setter.ps1 -Path "C:\path\to\image.jpg" -DisplayMode tile
+  # CLI mode - apply on primary monitor
+  .\wallpaper_setter.ps1 -Path "C:\path\to\image.jpg"
 
-  # CLI mode - apply image fullscreen with stretch
-  .\wallpaper_setter.ps1 -Path "C:\path\to\image.jpg" -DisplayMode fullscreen -Stretch
+  # CLI mode - apply on all monitors
+  .\wallpaper_setter.ps1 -Path "C:\path\to\image.jpg" -Monitor all
 
-  # CLI mode - apply image with registry method
-  .\wallpaper_setter.ps1 -Path "C:\path\to\image.jpg" -UseRegistryMethod
+  # CLI mode - apply on monitor 2
+  .\wallpaper_setter.ps1 -Path "C:\path\to\image.jpg" -Monitor 1
+
+  # CLI mode - spanned across all monitors
+  .\wallpaper_setter.ps1 -Path "C:\path\to\image.jpg" -Spanned
 "@
     exit
 }
@@ -51,6 +58,82 @@ public static class WallpaperNative {
     public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
 }
 '@
+
+function Get-MonitorList {
+    try {
+        # Try using WMI first
+        $monitors = @()
+        
+        # Get monitor info from Windows
+        try {
+            $displayDevices = Get-WmiObject -Class Win32_PnPDevice -Filter "ClassGuid='{4d36e96e-e325-11ce-bfc1-08002be10318()}'" -ErrorAction SilentlyContinue
+            
+            if ($displayDevices) {
+                $index = 0
+                foreach ($device in @($displayDevices)) {
+                    $monitorObj = [PSCustomObject]@{
+                        Index = $index
+                        Name = $device.Name
+                        IsPrimary = ($index -eq 0)
+                        Screen = $null
+                    }
+                    $monitors += $monitorObj
+                    Write-Host "[DEBUG GET-MONITORLIST] Monitor $index : $($device.Name)"
+                    $index++
+                }
+            }
+        } catch {
+            Write-Host "[WARNING] WMI method failed, falling back to Screen API"
+        }
+        
+        # Fallback to Screen API if WMI doesn't work
+        if ($monitors.Count -eq 0) {
+            $screens = [System.Windows.Forms.Screen]::AllScreens
+            
+            for ($i = 0; $i -lt @($screens).Count; $i++) {
+                $screen = @($screens)[$i]
+                $isPrimary = $screen.Primary
+                $name = "Monitor {0}" -f $i
+                if ($isPrimary) {
+                    $name = "Monitor {0} (Primary)" -f $i
+                }
+                
+                Write-Host "[DEBUG GET-MONITORLIST] Screen API - Monitor $i : $name"
+                
+                $monitorObj = [PSCustomObject]@{
+                    Index = $i
+                    Name = $name
+                    IsPrimary = $isPrimary
+                    Screen = $screen
+                }
+                $monitors += $monitorObj
+            }
+        }
+        
+        Write-Host "[DEBUG GET-MONITORLIST] Found $($monitors.Count) monitors, type: $($monitors.GetType().Name)"
+        return $monitors
+    } catch {
+        Write-Host "[ERROR] Failed to get monitor list: $_"
+        return @()
+    }
+}
+
+function Get-FocusedMonitor {
+    try {
+        $focusedWindow = [System.Diagnostics.Process]::GetCurrentProcess().MainWindowHandle
+        $screen = [System.Windows.Forms.Screen]::FromHandle($focusedWindow)
+        
+        $screens = [System.Windows.Forms.Screen]::AllScreens
+        for ($i = 0; $i -lt $screens.Count; $i++) {
+            if ($screens[$i].DeviceName -eq $screen.DeviceName) {
+                return $i
+            }
+        }
+        return 0
+    } catch {
+        return 0
+    }
+}
 
 function Test-ImageFile {
     param(
@@ -122,11 +205,60 @@ function Set-WallpaperRegistry {
     }
 }
 
+function Set-WallpaperSpanned {
+    param(
+        [string]$Path,
+        [string]$DisplayMode = "fullscreen",
+        [bool]$DoStretch = $true
+    )
+    
+    try {
+        Write-Host "[INFO] Applying spanned wallpaper across all monitors..."
+        
+        # Get all screens
+        $screens = [System.Windows.Forms.Screen]::AllScreens
+        if ($screens.Count -le 1) {
+            Write-Host "[WARNING] Only one monitor detected, applying normally"
+            return $false
+        }
+        
+        # Calculate total width and determine y position (use primary screen's y)
+        $totalWidth = 0
+        $minY = 0
+        $maxHeight = 0
+        $primaryScreen = $screens | Where-Object { $_.Primary }
+        
+        foreach ($screen in $screens) {
+            $totalWidth += $screen.Bounds.Width
+            $minY = [Math]::Min($minY, $screen.Bounds.Y)
+            $maxHeight = [Math]::Max($maxHeight, $screen.Bounds.Height)
+        }
+        
+        # Create spanned wallpaper by setting registry and using WallpaperStyle 22 (spanned)
+        Write-Host "[INFO] Setting wallpaper style to spanned (22)"
+        $regPath = 'HKCU:\Control Panel\Desktop'
+        Set-ItemProperty -Path $regPath -Name Wallpaper -Value $Path -ErrorAction Stop
+        Set-ItemProperty -Path $regPath -Name WallpaperStyle -Value 22 -ErrorAction Stop
+        Set-ItemProperty -Path $regPath -Name TileWallpaper -Value 0 -ErrorAction Stop
+        
+        Write-Host "[INFO] Refreshing desktop..."
+        [WallpaperNative]::SystemParametersInfo(20, 0, $Path, 3) | Out-Null
+        
+        Write-Host "[SUCCESS] Spanned wallpaper applied"
+        return $true
+    } catch {
+        Write-Host "[ERROR] Failed to apply spanned wallpaper: $($_.Exception.Message)"
+        return $false
+    }
+}
+
 function Set-Wallpaper {
     param(
         [string]$Path,
         [string]$DisplayMode = "fullscreen",
+        [string]$Monitor = "primary",
         [bool]$DoStretch,
+        [bool]$DoSpanned,
         [bool]$DoCloseAfter,
         [bool]$UseRegistryMethod,
         [bool]$IsGUIMode = $false
@@ -135,8 +267,22 @@ function Set-Wallpaper {
     Write-Host "[INFO] Applying wallpaper..."
     Write-Host "[INFO] Image path: $Path"
     Write-Host "[INFO] Display mode: $DisplayMode"
+    Write-Host "[INFO] Monitor: $Monitor"
+    Write-Host "[INFO] Spanned: $DoSpanned"
     Write-Host "[INFO] Stretch: $DoStretch"
     Write-Host "[INFO] Use Registry Method: $UseRegistryMethod"
+    
+    # Handle spanned mode
+    if ($DoSpanned) {
+        Write-Host "[INFO] Spanned mode enabled, applying to all monitors"
+        if (Set-WallpaperSpanned -Path $Path -DisplayMode $DisplayMode -DoStretch $DoStretch) {
+            Write-Host "[SUCCESS] Wallpaper applied successfully!"
+            return $true
+        } else {
+            Write-Host "[ERROR] Failed to apply spanned wallpaper"
+            return $false
+        }
+    }
     
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
         Write-Host "[ERROR] Invalid image path"
@@ -208,7 +354,7 @@ function Set-Wallpaper {
 
 if (-not [string]::IsNullOrWhiteSpace($Path)) {
     Write-Host "=== $AppName - CLI Mode ===" -ForegroundColor Cyan
-    if (Set-Wallpaper -Path $Path -DisplayMode $DisplayMode -DoStretch $Stretch -DoCloseAfter $CloseAfter -UseRegistryMethod $UseRegistryMethod -IsGUIMode $false) {
+    if (Set-Wallpaper -Path $Path -DisplayMode $DisplayMode -Monitor $Monitor -DoStretch $Stretch -DoSpanned $Spanned -DoCloseAfter $CloseAfter -UseRegistryMethod $UseRegistryMethod -IsGUIMode $false) {
         [System.Windows.Forms.MessageBox]::Show('Wallpaper applied successfully!', 'Success', 'OK', 'Information') | Out-Null
         if ($CloseAfter) {
             exit
@@ -223,7 +369,7 @@ Write-Host "=== $AppName - GUI Mode ===" -ForegroundColor Cyan
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = $AppName
-$form.Size = New-Object System.Drawing.Size(800, 420)
+$form.Size = New-Object System.Drawing.Size(800, 500)
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
@@ -280,26 +426,57 @@ $fullscreenRadioButton.Add_CheckedChanged({
     $stretchCheckBox.Enabled = $fullscreenRadioButton.Checked
 })
 
+# Monitor selection group
+$monitorLabel = New-Object System.Windows.Forms.Label
+$monitorLabel.Text = 'Monitor:'
+$monitorLabel.AutoSize = $true
+$monitorLabel.Location = New-Object System.Drawing.Point(12, 143)
+
+$monitorComboBox = New-Object System.Windows.Forms.ComboBox
+$monitorComboBox.Location = New-Object System.Drawing.Point(85, 143)
+$monitorComboBox.Size = New-Object System.Drawing.Size(200, 22)
+$monitorComboBox.DropDownStyle = 'DropDownList'
+$monitorComboBox.Items.Add('Current')
+$monitorComboBox.Items.Add('Primary')
+
+# Get monitor info and add to dropdown - include ALL monitors
+$monitors = Get-MonitorList
+Write-Host "[DEBUG] Found $(@($monitors).Count) monitors"
+Write-Host "[DEBUG] Monitors object type: $($monitors.GetType().Name)"
+for ($i = 0; $i -lt @($monitors).Count; $i++) {
+    $monitor = @($monitors)[$i]
+    Write-Host "[DEBUG] Monitor ${i} - Object type: $($monitor.GetType().Name)"
+    Write-Host "[DEBUG] Monitor ${i} - Object: $($monitor | Out-String)"
+    Write-Host "[DEBUG] Monitor ${i}: Name='$($monitor.Name)'"
+    if ($monitor.Name) {
+        $monitorComboBox.Items.Add($monitor.Name)
+    }
+}
+
+$monitorComboBox.Items.Add('All')
+$monitorComboBox.Items.Add('Spanned')
+$monitorComboBox.SelectedIndex = 0
+
 $closeAfterCheckBox = New-Object System.Windows.Forms.CheckBox
 $closeAfterCheckBox.Text = 'Close after applying'
-$closeAfterCheckBox.Location = New-Object System.Drawing.Point(12, 145)
+$closeAfterCheckBox.Location = New-Object System.Drawing.Point(12, 220)
 $closeAfterCheckBox.Size = New-Object System.Drawing.Size(150, 22)
 $closeAfterCheckBox.Checked = $true
 
 $useRegistryCheckBox = New-Object System.Windows.Forms.CheckBox
 $useRegistryCheckBox.Text = 'Use Registry method'
-$useRegistryCheckBox.Location = New-Object System.Drawing.Point(12, 170)
+$useRegistryCheckBox.Location = New-Object System.Drawing.Point(12, 245)
 $useRegistryCheckBox.Size = New-Object System.Drawing.Size(150, 22)
 $useRegistryCheckBox.Checked = $false
 
 $applyButton = New-Object System.Windows.Forms.Button
 $applyButton.Text = 'Apply'
-$applyButton.Location = New-Object System.Drawing.Point(12, 205)
+$applyButton.Location = New-Object System.Drawing.Point(12, 280)
 $applyButton.Size = New-Object System.Drawing.Size(90, 30)
 
 $exitButton = New-Object System.Windows.Forms.Button
 $exitButton.Text = 'Exit'
-$exitButton.Location = New-Object System.Drawing.Point(112, 205)
+$exitButton.Location = New-Object System.Drawing.Point(112, 280)
 $exitButton.Size = New-Object System.Drawing.Size(90, 30)
 
 $previewBox = New-Object System.Windows.Forms.PictureBox
@@ -324,6 +501,7 @@ $tooltip.ShowAlways = $false
 $tooltip.SetToolTip($browseButton, "Browse and select an image file to set as wallpaper")
 $tooltip.SetToolTip($tileRadioButton, "Display mode: Tile repeats the image across the entire screen")
 $tooltip.SetToolTip($fullscreenRadioButton, "Display mode: Full screen displays the image centered or stretched without tiling")
+$tooltip.SetToolTip($monitorComboBox, "Choose which monitor to apply the wallpaper to`nCurrent: The monitor where this window is located`nPrimary: Main system monitor`nSpanned: One image across all monitors")
 $tooltip.SetToolTip($stretchCheckBox, "When enabled: Stretches image to fill screen`nWhen disabled: Centers image on the screen (keeps aspect ratio)")
 $tooltip.SetToolTip($closeAfterCheckBox, "Automatically close the application after the wallpaper is applied")
 $tooltip.SetToolTip($useRegistryCheckBox, "Use registry method instead of Windows API (try this if the default method fails on restricted systems)")
@@ -354,7 +532,26 @@ $applyButton.Add_Click({
     # Determine display mode
     $displayMode = if ($tileRadioButton.Checked) { "tile" } else { "fullscreen" }
     
-    if (Set-Wallpaper -Path $selectedPath -DisplayMode $displayMode -DoStretch $stretchCheckBox.Checked -DoCloseAfter $closeAfterCheckBox.Checked -UseRegistryMethod $useRegistryCheckBox.Checked -IsGUIMode $true) {
+    # Determine monitor selection and spanned mode
+    $monitorSelection = $monitorComboBox.SelectedItem
+    $selectedMonitor = "primary"
+    $isSpanned = $false
+    
+    if ($monitorSelection -eq 'Spanned') {
+        $isSpanned = $true
+    } elseif ($monitorSelection -eq 'Current') {
+        $focusedMonitorIndex = Get-FocusedMonitor
+        $selectedMonitor = $focusedMonitorIndex.ToString()
+    } elseif ($monitorSelection -eq 'All') {
+        $selectedMonitor = "all"
+    } elseif ($monitorSelection -eq 'Primary') {
+        $selectedMonitor = "primary"
+    } else {
+        # If it's a specific monitor name, use it
+        $selectedMonitor = $monitorSelection
+    }
+    
+    if (Set-Wallpaper -Path $selectedPath -DisplayMode $displayMode -Monitor $selectedMonitor -DoStretch $stretchCheckBox.Checked -DoSpanned $isSpanned -DoCloseAfter $closeAfterCheckBox.Checked -UseRegistryMethod $useRegistryCheckBox.Checked -IsGUIMode $true) {
         [System.Windows.Forms.MessageBox]::Show('Wallpaper applied successfully!', 'Success', 'OK', 'Information') | Out-Null
         if ($closeAfterCheckBox.Checked) {
             $form.Close()
@@ -362,5 +559,5 @@ $applyButton.Add_Click({
     }
 })
 
-$form.Controls.AddRange(@($label, $pathBox, $browseButton, $displayModeLabel, $tileRadioButton, $fullscreenRadioButton, $stretchCheckBox, $closeAfterCheckBox, $useRegistryCheckBox, $applyButton, $exitButton, $previewBox))
+$form.Controls.AddRange(@($label, $pathBox, $browseButton, $displayModeLabel, $tileRadioButton, $fullscreenRadioButton, $stretchCheckBox, $closeAfterCheckBox, $useRegistryCheckBox, $monitorLabel, $monitorComboBox, $applyButton, $exitButton, $previewBox))
 $form.ShowDialog() | Out-Null
