@@ -1,5 +1,8 @@
 # Wallpaper Setter Bypass (WSB)
 
+<img src="https://img.shields.io/badge/Target-Windows-green?style=flat" alt="Target Hardware"/>
+<img src="https://img.shields.io/github/v/release/Oignontom8283/eadkp?include_prereleases&style=flat&logo=github" alt="Version"/>
+
 **Français** | [English](README.md)
 
 Application PowerShell qui contourne l'interface native de Windows pour définir les fonds d'écran directement avec options avancées de mise à l'échelle et de style. Fonctionne sans privilèges administrateur.
