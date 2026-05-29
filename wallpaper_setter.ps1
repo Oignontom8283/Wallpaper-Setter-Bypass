@@ -474,7 +474,7 @@ Write-Host "=== $AppName - GUI Mode ===" -ForegroundColor Cyan
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = $AppName
-$form.Size = New-Object System.Drawing.Size(800, 500)
+$form.Size = New-Object System.Drawing.Size(800, 360)
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
@@ -495,26 +495,21 @@ $browseButton.Location = New-Object System.Drawing.Point(330, 14)
 $browseButton.Size = New-Object System.Drawing.Size(75, 25)
 
 # Display mode group
-$displayModeLabel = New-Object System.Windows.Forms.Label
-$displayModeLabel.Text = 'Display mode:'
-$displayModeLabel.AutoSize = $true
-$displayModeLabel.Location = New-Object System.Drawing.Point(12, 50)
-
 $tileRadioButton = New-Object System.Windows.Forms.RadioButton
 $tileRadioButton.Text = 'Tile (repeat)'
-$tileRadioButton.Location = New-Object System.Drawing.Point(12, 70)
+$tileRadioButton.Location = New-Object System.Drawing.Point(12, 80)
 $tileRadioButton.Size = New-Object System.Drawing.Size(150, 22)
 $tileRadioButton.Checked = $false
 
 $fullscreenRadioButton = New-Object System.Windows.Forms.RadioButton
 $fullscreenRadioButton.Text = 'Full screen'
-$fullscreenRadioButton.Location = New-Object System.Drawing.Point(12, 95)
+$fullscreenRadioButton.Location = New-Object System.Drawing.Point(12, 105)
 $fullscreenRadioButton.Size = New-Object System.Drawing.Size(150, 22)
 $fullscreenRadioButton.Checked = $true
 
 $stretchCheckBox = New-Object System.Windows.Forms.CheckBox
 $stretchCheckBox.Text = 'Stretch to fill'
-$stretchCheckBox.Location = New-Object System.Drawing.Point(35, 120)
+$stretchCheckBox.Location = New-Object System.Drawing.Point(35, 130)
 $stretchCheckBox.Size = New-Object System.Drawing.Size(150, 22)
 $stretchCheckBox.Checked = $true
 $stretchCheckBox.Enabled = $true
@@ -535,10 +530,10 @@ $fullscreenRadioButton.Add_CheckedChanged({
 $monitorLabel = New-Object System.Windows.Forms.Label
 $monitorLabel.Text = 'Monitor:'
 $monitorLabel.AutoSize = $true
-$monitorLabel.Location = New-Object System.Drawing.Point(12, 143)
+$monitorLabel.Location = New-Object System.Drawing.Point(12, 53)
 
 $monitorComboBox = New-Object System.Windows.Forms.ComboBox
-$monitorComboBox.Location = New-Object System.Drawing.Point(85, 143)
+$monitorComboBox.Location = New-Object System.Drawing.Point(85, 50)
 $monitorComboBox.Size = New-Object System.Drawing.Size(200, 22)
 $monitorComboBox.DropDownStyle = 'DropDownList'
 $monitorComboBox.Items.Add('Current')
@@ -560,24 +555,24 @@ $monitorComboBox.SelectedIndex = 0
 
 $closeAfterCheckBox = New-Object System.Windows.Forms.CheckBox
 $closeAfterCheckBox.Text = 'Close after applying'
-$closeAfterCheckBox.Location = New-Object System.Drawing.Point(12, 220)
+$closeAfterCheckBox.Location = New-Object System.Drawing.Point(12, 155)
 $closeAfterCheckBox.Size = New-Object System.Drawing.Size(150, 22)
 $closeAfterCheckBox.Checked = $true
 
 $useRegistryCheckBox = New-Object System.Windows.Forms.CheckBox
 $useRegistryCheckBox.Text = 'Use Registry method'
-$useRegistryCheckBox.Location = New-Object System.Drawing.Point(12, 245)
+$useRegistryCheckBox.Location = New-Object System.Drawing.Point(12, 180)
 $useRegistryCheckBox.Size = New-Object System.Drawing.Size(150, 22)
 $useRegistryCheckBox.Checked = $false
 
 $applyButton = New-Object System.Windows.Forms.Button
 $applyButton.Text = 'Apply'
-$applyButton.Location = New-Object System.Drawing.Point(12, 280)
+$applyButton.Location = New-Object System.Drawing.Point(12, 220)
 $applyButton.Size = New-Object System.Drawing.Size(90, 30)
 
 $exitButton = New-Object System.Windows.Forms.Button
 $exitButton.Text = 'Exit'
-$exitButton.Location = New-Object System.Drawing.Point(112, 280)
+$exitButton.Location = New-Object System.Drawing.Point(112, 220)
 $exitButton.Size = New-Object System.Drawing.Size(90, 30)
 
 $previewBox = New-Object System.Windows.Forms.PictureBox
@@ -684,5 +679,5 @@ $applyButton.Add_Click({
     }
 })
 
-$form.Controls.AddRange(@($label, $pathBox, $browseButton, $displayModeLabel, $tileRadioButton, $fullscreenRadioButton, $stretchCheckBox, $closeAfterCheckBox, $useRegistryCheckBox, $monitorLabel, $monitorComboBox, $applyButton, $exitButton, $previewBox))
+$form.Controls.AddRange(@($label, $pathBox, $browseButton, $tileRadioButton, $fullscreenRadioButton, $stretchCheckBox, $closeAfterCheckBox, $useRegistryCheckBox, $monitorLabel, $monitorComboBox, $applyButton, $exitButton, $previewBox))
 $form.ShowDialog() | Out-Null
