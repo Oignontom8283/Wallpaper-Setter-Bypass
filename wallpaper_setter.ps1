@@ -79,96 +79,53 @@ Add-Type @'
 using System;
 using System.Runtime.InteropServices;
 
-[StructLayout(LayoutKind.Sequential)]
-public struct RECT {
-    public int Left;
-    public int Top;
-    public int Right;
-    public int Bottom;
-}
-
-[ComImport]
-[Guid("B92B56A9-8B55-4E14-9A89-0199BBB6F93B")]
-[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-public interface IDesktopWallpaperV2 {
-    void SetWallpaper([MarshalAs(UnmanagedType.LPWStr)] string monitorID, [MarshalAs(UnmanagedType.LPWStr)] string wallpaper);
-    [return: MarshalAs(UnmanagedType.LPWStr)] string GetWallpaper([MarshalAs(UnmanagedType.LPWStr)] string monitorID);
-    [return: MarshalAs(UnmanagedType.LPWStr)] string GetMonitorDevicePathAt(uint monitorIndex);
-    uint GetMonitorDevicePathCount();
-    void GetMonitorRECT([MarshalAs(UnmanagedType.LPWStr)] string monitorID, out RECT displayRect);
-    void SetBackgroundColor(uint color);
-    uint GetBackgroundColor();
-    void SetPosition(uint position);
-    uint GetPosition();
-    void SetSlideshow(IntPtr items);
-    IntPtr GetSlideshow();
-    void SetSlideshowOptions(uint options, uint slideshowTick);
-    void GetSlideshowOptions(out uint options, out uint slideshowTick);
-    void AdvanceSlideshow([MarshalAs(UnmanagedType.LPWStr)] string monitorID, uint direction);
-    uint GetStatus();
-    void Enable(bool enable);
-}
-
-[ComImport]
-[Guid("C2CF3110-460E-4fc1-B9D0-8A1C0C9CC4BD")]
-public class DesktopWallpaperV2 { }
-
 public static class WallpaperNativeV2 {
     [DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
     public static extern bool SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
 
-    public static void SetWallpaperAll(string path) {
-        var dw = (IDesktopWallpaperV2)new DesktopWallpaperV2();
-        dw.SetWallpaper(null, path);
-    }
-
-    public static void SetWallpaperMonitorByRect(int left, int top, string path) {
-        var dw = (IDesktopWallpaperV2)new DesktopWallpaperV2();
-        uint count = dw.GetMonitorDevicePathCount();
-
-        for (uint i = 0; i < count; i++) {
-            string devPath = dw.GetMonitorDevicePathAt(i);
-            RECT r;
-            dw.GetMonitorRECT(devPath, out r);
-            if (r.Left == left && r.Top == top) {
-                dw.SetWallpaper(devPath, path);
-                return;
-            }
-        }
-
-        if (count > 0) {
-            dw.SetWallpaper(dw.GetMonitorDevicePathAt(0), path);
-        }
-    }
-
-    public static void SetWallpaperMonitorByIndex(uint idx, string path) {
-        var dw = (IDesktopWallpaperV2)new DesktopWallpaperV2();
-        uint count = dw.GetMonitorDevicePathCount();
-        if (idx < count) {
-            dw.SetWallpaper(dw.GetMonitorDevicePathAt(idx), path);
-        }
-    }
-
-    public static uint GetMonitorCount() {
-        var dw = (IDesktopWallpaperV2)new DesktopWallpaperV2();
-        return dw.GetMonitorDevicePathCount();
+    public static bool SetWallpaperSPI(string path) {
+        try { return SystemParametersInfo(20, 0, path, 3); }
+        catch { return false; }
     }
 }
 '@ -ErrorAction SilentlyContinue
 
-# ===== FIX #4 : Get-MonitorList - noms WMI appariés par DeviceName, pas par index =====
+
+# ===== Copie locale si chemin UNC =====
+function Resolve-LocalWallpaperPath {
+    param([string]$SourcePath)
+
+    if ($SourcePath -notmatch '^\\\\') {
+        return $SourcePath
+    }
+
+    Write-Host "[INFO] UNC path detected, copying to local TEMP..."
+    $ext       = [System.IO.Path]::GetExtension($SourcePath)
+    $hashBytes = [System.Text.Encoding]::UTF8.GetBytes($SourcePath)
+    $md5       = [System.Security.Cryptography.MD5]::Create()
+    $hashStr   = ([System.BitConverter]::ToString($md5.ComputeHash($hashBytes)) -replace '-','').Substring(0,12).ToLower()
+    $localPath = [System.IO.Path]::Combine($env:TEMP, "wallpaper_$hashStr$ext")
+
+    try {
+        Copy-Item -LiteralPath $SourcePath -Destination $localPath -Force -ErrorAction Stop
+        Write-Host "[INFO] Copied to: $localPath"
+        return $localPath
+    } catch {
+        Write-Host "[ERROR] Failed to copy UNC file to TEMP: $($_.Exception.Message)"
+        return $SourcePath
+    }
+}
+
+
+# ===== Get-MonitorList =====
 function Get-MonitorList {
     try {
         $screens = [System.Windows.Forms.Screen]::AllScreens
         $monitors = @()
 
-        # Récupération des noms de modèles via WMI (EDID)
-        # On construit un dictionnaire DeviceName -> ModelName pour éviter le désalignement d'index
         $hardwareNameMap = @{}
         try {
             $wmiMonitors = Get-WmiObject -Namespace root\wmi -Class WmiMonitorID -ErrorAction SilentlyContinue
-            $wmiInstances = Get-WmiObject -Namespace root\wmi -Class WmiMonitorBasicDisplayParams -ErrorAction SilentlyContinue
-
             foreach ($wm in $wmiMonitors) {
                 if ($wm.Active) {
                     $nameStr = ""
@@ -176,28 +133,19 @@ function Get-MonitorList {
                         if ($char -ne 0) { $nameStr += [char]$char }
                     }
                     if (![string]::IsNullOrWhiteSpace($nameStr)) {
-                        # InstanceName ressemble à "DISPLAY\XXX\4&xxx&0&UID0_0" — on extrait la partie utile
                         $instanceKey = ($wm.InstanceName -split "\\")[1]
-                        if ($instanceKey) {
-                            $hardwareNameMap[$instanceKey] = $nameStr.Trim()
-                        }
+                        if ($instanceKey) { $hardwareNameMap[$instanceKey] = $nameStr.Trim() }
                     }
                 }
             }
         } catch { }
 
         for ($i = 0; $i -lt $screens.Count; $i++) {
-            $screen = $screens[$i]
+            $screen    = $screens[$i]
             $isPrimary = $screen.Primary
+            $name      = $screen.DeviceName -replace '\\\\\.\\', ''
+            $name      = if ($isPrimary) { "$name (Primary)" } else { "$name (Monitor $($i + 1))" }
 
-            $name = $screen.DeviceName -replace '\\\\\.\\', ''
-            if ($isPrimary) {
-                $name = "$name (Primary)"
-            } else {
-                $name = "$name (Monitor $($i + 1))"
-            }
-
-            # Cherche un nom de modèle correspondant à ce DeviceName
             $deviceKey = ($screen.DeviceName -replace '\\\\\.\\', '')
             foreach ($key in $hardwareNameMap.Keys) {
                 if ($deviceKey -like "*$key*" -or $key -like "*$deviceKey*") {
@@ -205,7 +153,6 @@ function Get-MonitorList {
                     break
                 }
             }
-
             $monitors += [PSCustomObject]@{
                 Index     = $i
                 Name      = $name
@@ -213,7 +160,6 @@ function Get-MonitorList {
                 Screen    = $screen
             }
         }
-
         return , $monitors
     } catch {
         Write-Host "[ERROR] Failed to get monitor list: $_"
@@ -224,92 +170,46 @@ function Get-MonitorList {
 function Get-FocusedMonitor {
     try {
         $focusedWindow = [System.Diagnostics.Process]::GetCurrentProcess().MainWindowHandle
-        $screen = [System.Windows.Forms.Screen]::FromHandle($focusedWindow)
-
-        $screens = [System.Windows.Forms.Screen]::AllScreens
+        $screen        = [System.Windows.Forms.Screen]::FromHandle($focusedWindow)
+        $screens       = [System.Windows.Forms.Screen]::AllScreens
         for ($i = 0; $i -lt $screens.Count; $i++) {
-            if ($screens[$i].DeviceName -eq $screen.DeviceName) {
-                return $i
-            }
+            if ($screens[$i].DeviceName -eq $screen.DeviceName) { return $i }
         }
         return 0
-    } catch {
-        return 0
-    }
+    } catch { return 0 }
 }
 
 function Test-ImageFile {
-    param(
-        [string]$ImagePath
-    )
-
+    param([string]$ImagePath)
     try {
         Write-Host "[INFO] Validating image file: $ImagePath"
         $image = [System.Drawing.Image]::FromFile($ImagePath)
-        $imageWidth = $image.Width
-        $imageHeight = $image.Height
+        $w = $image.Width; $h = $image.Height
         $image.Dispose()
-
-        Write-Host "[INFO] Image validation successful: $($imageWidth)x$($imageHeight)"
+        Write-Host "[INFO] Image validation successful: ${w}x${h}"
         return $true
     } catch {
-        Write-Host "[ERROR] Invalid or corrupted image file: $($_.Exception.Message)"
+        Write-Host "[ERROR] Invalid or corrupted image: $($_.Exception.Message)"
         return $false
     }
 }
 
-function Set-WallpaperNative {
-    param(
-        [string]$Path,
-        [string]$MonitorValue = "all"
-    )
-
+# ===== Methode SPI pure - identique a l'ancienne version =====
+function Set-WallpaperSPI {
+    param([string]$Path)
     try {
-        Write-Host "[INFO] Attempting COM IDesktopWallpaper method for monitor: $MonitorValue..."
-
-        if ($MonitorValue -eq "all") {
-            [WallpaperNativeV2]::SetWallpaperAll($Path)
+        Write-Host "[INFO] Calling SystemParametersInfo..."
+        $result = [WallpaperNativeV2]::SetWallpaperSPI($Path)
+        if ($result) {
+            Write-Host "[SUCCESS] SPI succeeded."
         } else {
-            $targetScreen = $null
-            if ($MonitorValue -eq "primary") {
-                $targetScreen = [System.Windows.Forms.Screen]::PrimaryScreen
-            } else {
-                foreach ($s in [System.Windows.Forms.Screen]::AllScreens) {
-                    if ($s.DeviceName -eq $MonitorValue) {
-                        $targetScreen = $s
-                        break
-                    }
-                }
-                if (-not $targetScreen -and $MonitorValue -match '^\d+$') {
-                    $idx = [int]$MonitorValue
-                    $screens = [System.Windows.Forms.Screen]::AllScreens
-                    if ($idx -lt $screens.Count) {
-                        $targetScreen = $screens[$idx]
-                    }
-                }
-            }
-
-            if ($targetScreen) {
-                Write-Host "[DEBUG] Screen '$MonitorValue' matched to bounds Left: $($targetScreen.Bounds.Left), Top: $($targetScreen.Bounds.Top)" -ForegroundColor Yellow
-                [WallpaperNativeV2]::SetWallpaperMonitorByRect($targetScreen.Bounds.Left, $targetScreen.Bounds.Top, $Path)
-            } else {
-                Write-Host "[WARNING] Screen '$MonitorValue' not found, falling back to index 0" -ForegroundColor DarkYellow
-                [WallpaperNativeV2]::SetWallpaperMonitorByIndex(0, $Path)
-            }
+            $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            Write-Host "[ERROR] SPI returned false. Win32 error: $err"
         }
-
-        Write-Host "[SUCCESS] Native method succeeded"
-        return $true
+        return $result
     } catch {
-        Write-Host "[ERROR] COM Native method failed: $($_.Exception.Message)"
-        Write-Host "[INFO] Falling back to SystemParametersInfo..."
-        try {
-            # FIX #1 : WallpaperNative -> WallpaperNativeV2
-            [WallpaperNativeV2]::SystemParametersInfo(20, 0, $Path, 3) | Out-Null
-            return $true
-        } catch {
-            return $false
-        }
+        Write-Host "[ERROR] SPI exception: $($_.Exception.Message)"
+        return $false
     }
 }
 
@@ -318,28 +218,20 @@ function Set-WallpaperRegistry {
         [string]$Path,
         [string]$DisplayMode = "fullscreen"
     )
-
     try {
-        Write-Host "[INFO] Attempting Registry method..."
-
+        Write-Host "[INFO] Attempting Registry+SPI method..."
         $regPath = 'HKCU:\Control Panel\Desktop'
         Set-ItemProperty -Path $regPath -Name Wallpaper -Value $Path -ErrorAction Stop
-
         if ($DisplayMode -eq "tile") {
-            Write-Host "[INFO] Setting TileWallpaper to 1 (tile mode)"
             Set-ItemProperty -Path $regPath -Name WallpaperStyle -Value 1 -ErrorAction Stop
-            Set-ItemProperty -Path $regPath -Name TileWallpaper -Value 1 -ErrorAction Stop
+            Set-ItemProperty -Path $regPath -Name TileWallpaper  -Value 1 -ErrorAction Stop
         } else {
-            Write-Host "[INFO] Setting TileWallpaper to 0 (no tile)"
             Set-ItemProperty -Path $regPath -Name WallpaperStyle -Value 6 -ErrorAction Stop
-            Set-ItemProperty -Path $regPath -Name TileWallpaper -Value 0 -ErrorAction Stop
+            Set-ItemProperty -Path $regPath -Name TileWallpaper  -Value 0 -ErrorAction Stop
         }
-
-        Write-Host "[INFO] Refreshing desktop with SystemParametersInfo..."
-        # FIX #1 : WallpaperNative -> WallpaperNativeV2
-        [WallpaperNativeV2]::SystemParametersInfo(20, 0, $Path, 3) | Out-Null
-
-        Write-Host "[SUCCESS] Registry method succeeded"
+        Write-Host "[INFO] Refreshing desktop via SPI..."
+        [WallpaperNativeV2]::SetWallpaperSPI($Path) | Out-Null
+        Write-Host "[SUCCESS] Registry method succeeded."
         return $true
     } catch {
         Write-Host "[ERROR] Registry method failed: $($_.Exception.Message)"
@@ -350,33 +242,24 @@ function Set-WallpaperRegistry {
 function Set-WallpaperSpanned {
     param(
         [string]$Path,
-        [string]$DisplayMode = "fullscreen",
-        [bool]$DoStretch = $true
+        [string]$DisplayMode = "fullscreen"
     )
-
     try {
-        Write-Host "[INFO] Applying spanned wallpaper across all monitors..."
-
+        Write-Host "[INFO] Applying spanned wallpaper..."
         $screens = [System.Windows.Forms.Screen]::AllScreens
         if ($screens.Count -le 1) {
-            Write-Host "[WARNING] Only one monitor detected, applying normally"
-            return $false
+            Write-Host "[WARNING] Only one monitor, using SPI normally."
         }
-
-        Write-Host "[INFO] Setting wallpaper style to spanned (22)"
         $regPath = 'HKCU:\Control Panel\Desktop'
-        Set-ItemProperty -Path $regPath -Name Wallpaper -Value $Path -ErrorAction Stop
-        Set-ItemProperty -Path $regPath -Name WallpaperStyle -Value 22 -ErrorAction Stop
-        Set-ItemProperty -Path $regPath -Name TileWallpaper -Value 0 -ErrorAction Stop
-
-        Write-Host "[INFO] Refreshing desktop..."
-        # FIX #1 : WallpaperNative -> WallpaperNativeV2
-        [WallpaperNativeV2]::SystemParametersInfo(20, 0, $Path, 3) | Out-Null
-
-        Write-Host "[SUCCESS] Spanned wallpaper applied"
-        return $true
+        Set-ItemProperty -Path $regPath -Name Wallpaper      -Value $Path -ErrorAction Stop
+        Set-ItemProperty -Path $regPath -Name WallpaperStyle -Value 22    -ErrorAction Stop
+        Set-ItemProperty -Path $regPath -Name TileWallpaper  -Value 0     -ErrorAction Stop
+        $ok = [WallpaperNativeV2]::SetWallpaperSPI($Path)
+        if ($ok) { Write-Host "[SUCCESS] Spanned wallpaper applied." }
+        else     { Write-Host "[ERROR] SPI failed for spanned." }
+        return $ok
     } catch {
-        Write-Host "[ERROR] Failed to apply spanned wallpaper: $($_.Exception.Message)"
+        Write-Host "[ERROR] Spanned failed: $($_.Exception.Message)"
         return $false
     }
 }
@@ -392,90 +275,87 @@ function Set-Wallpaper {
         [bool]$IsGUIMode = $false
     )
 
-    Write-Host "[INFO] Applying wallpaper..."
-    Write-Host "[INFO] Image path: $Path"
-    Write-Host "[INFO] Display mode: $DisplayMode"
-    Write-Host "[INFO] Monitor: $Monitor"
-    Write-Host "[INFO] Spanned: $DoSpanned"
-    Write-Host "[INFO] Stretch: $DoStretch"
-    Write-Host "[INFO] Use Registry Method: $UseRegistryMethod"
+    Write-Host "[INFO] === Set-Wallpaper ==="
+    Write-Host "[INFO] Path:              $Path"
+    Write-Host "[INFO] DisplayMode:       $DisplayMode"
+    Write-Host "[INFO] Monitor:           $Monitor"
+    Write-Host "[INFO] Spanned:           $DoSpanned"
+    Write-Host "[INFO] Stretch:           $DoStretch"
+    Write-Host "[INFO] UseRegistryMethod: $UseRegistryMethod"
 
-    # FIX #5 : Validation du path AVANT le bloc spanned (évite un crash silencieux en mode spanned)
+    # Validation chemin
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
-        Write-Host "[ERROR] Invalid image path"
+        Write-Host "[ERROR] Invalid image path."
         if ($IsGUIMode) {
             [System.Windows.Forms.MessageBox]::Show($UITexts.SelectValidImage, $UITexts.Error, 'OK', 'Error') | Out-Null
         }
         return $false
     }
-
     if (-not (Test-ImageFile -ImagePath $Path)) {
-        Write-Host "[ERROR] Image file validation failed"
+        Write-Host "[ERROR] Image validation failed."
         if ($IsGUIMode) {
             [System.Windows.Forms.MessageBox]::Show($UITexts.InvalidOrCorruptedImage, $UITexts.Error, 'OK', 'Error') | Out-Null
         }
         return $false
     }
 
-    # Handle spanned mode (après validation)
+    # Copie locale si UNC
+    $localPath = Resolve-LocalWallpaperPath -SourcePath $Path
+    Write-Host "[INFO] Effective local path: $localPath"
+
+    # Mode Spanned
     if ($DoSpanned) {
-        Write-Host "[INFO] Spanned mode enabled, applying to all monitors"
-        if (Set-WallpaperSpanned -Path $Path -DisplayMode $DisplayMode -DoStretch $DoStretch) {
-            Write-Host "[SUCCESS] Wallpaper applied successfully!"
-            return $true
-        } else {
-            Write-Host "[ERROR] Failed to apply spanned wallpaper"
-            return $false
-        }
+        return (Set-WallpaperSpanned -Path $localPath -DisplayMode $DisplayMode)
     }
 
-    $wallpaperPath = $Path
-
-    # Set wallpaper style in registry based on display mode
-    Write-Host "[INFO] Setting wallpaper style..."
+    # Ecrire style ET chemin dans le registre AVANT SPI
+    # SPI lit le style depuis le registre au moment du refresh
+    $regPath = 'HKCU:\Control Panel\Desktop'
+    Write-Host "[INFO] Writing wallpaper style to registry..."
+    Set-ItemProperty -Path $regPath -Name Wallpaper -Value $localPath
     if ($DisplayMode -eq "tile") {
-        Write-Host "[INFO] Setting style to: Tile"
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name WallpaperStyle -Value 1
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name TileWallpaper -Value 1
+        Set-ItemProperty -Path $regPath -Name WallpaperStyle -Value 1
+        Set-ItemProperty -Path $regPath -Name TileWallpaper  -Value 1
     } elseif ($DoStretch) {
-        Write-Host "[INFO] Setting style to: Stretch"
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name WallpaperStyle -Value 2
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name TileWallpaper -Value 0
+        Set-ItemProperty -Path $regPath -Name WallpaperStyle -Value 2
+        Set-ItemProperty -Path $regPath -Name TileWallpaper  -Value 0
     } else {
-        Write-Host "[INFO] Setting style to: Fit"
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name WallpaperStyle -Value 6
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name TileWallpaper -Value 0
+        Set-ItemProperty -Path $regPath -Name WallpaperStyle -Value 6
+        Set-ItemProperty -Path $regPath -Name TileWallpaper  -Value 0
     }
 
     $success = $false
 
     if ($UseRegistryMethod) {
-        $success = Set-WallpaperRegistry -Path $wallpaperPath -DisplayMode $DisplayMode
+        $success = Set-WallpaperRegistry -Path $localPath -DisplayMode $DisplayMode
     } else {
-        $success = Set-WallpaperNative -Path $wallpaperPath -MonitorValue $Monitor
+        # SPI dans tous les cas - COM per-monitor ne fonctionne pas dans cet environnement
+        Write-Host "[INFO] Applying via SPI (monitor context: $Monitor)"
+        $success = Set-WallpaperSPI -Path $localPath
 
-        if (-not $success -and $IsGUIMode) {
-            $result = [System.Windows.Forms.MessageBox]::Show(
-                $UITexts.MethodFailedMessage,
-                $UITexts.MethodFailed,
-                'YesNo',
-                'Question'
-            )
+        if (-not $success) {
+            Write-Host "[WARNING] SPI failed, trying Registry+SPI fallback..."
+            $success = Set-WallpaperRegistry -Path $localPath -DisplayMode $DisplayMode
 
-            if ($result -eq 'Yes') {
-                $success = Set-WallpaperRegistry -Path $wallpaperPath -DisplayMode $DisplayMode
+            if (-not $success -and $IsGUIMode) {
+                $result = [System.Windows.Forms.MessageBox]::Show(
+                    $UITexts.MethodFailedMessage,
+                    $UITexts.MethodFailed,
+                    'YesNo',
+                    'Question'
+                )
+                if ($result -eq 'Yes') {
+                    $success = Set-WallpaperRegistry -Path $localPath -DisplayMode $DisplayMode
+                }
             }
         }
     }
 
-    if ($success) {
-        Write-Host "[SUCCESS] Wallpaper applied successfully!"
-        return $true
-    } else {
-        Write-Host "[ERROR] Failed to apply wallpaper with all methods"
-        return $false
-    }
+    if ($success) { Write-Host "[SUCCESS] Wallpaper applied!" }
+    else          { Write-Host "[ERROR] All methods failed." }
+    return $success
 }
+
 
 # ===== CLI Mode =====
 if (-not [string]::IsNullOrWhiteSpace($Path)) {
@@ -519,7 +399,6 @@ $browseButton.Text = $UITexts.Browse
 $browseButton.Location = New-Object System.Drawing.Point(330, 14)
 $browseButton.Size = New-Object System.Drawing.Size(75, 25)
 
-# Monitor selection
 $monitorLabel = New-Object System.Windows.Forms.Label
 $monitorLabel.Text = $UITexts.Monitor
 $monitorLabel.AutoSize = $true
@@ -535,17 +414,13 @@ $monitorComboBox.DropDownStyle = 'DropDownList'
 $monitors = Get-MonitorList
 if ($monitors) {
     foreach ($m in $monitors) {
-        if ($m.Name) {
-            [void]$monitorComboBox.Items.Add($m.Name)
-        }
+        if ($m.Name) { [void]$monitorComboBox.Items.Add($m.Name) }
     }
 }
-
 [void]$monitorComboBox.Items.Add('All')
 [void]$monitorComboBox.Items.Add('Spanned')
 $monitorComboBox.SelectedIndex = 0
 
-# Display mode group
 $tileRadioButton = New-Object System.Windows.Forms.RadioButton
 $tileRadioButton.Text = $UITexts.TileRepeat
 $tileRadioButton.Location = New-Object System.Drawing.Point(12, 80)
@@ -567,11 +442,8 @@ $stretchCheckBox.Enabled = $true
 
 $tileRadioButton.Add_CheckedChanged({
     $stretchCheckBox.Enabled = -not $tileRadioButton.Checked
-    if ($tileRadioButton.Checked) {
-        $stretchCheckBox.Checked = $false
-    }
+    if ($tileRadioButton.Checked) { $stretchCheckBox.Checked = $false }
 })
-
 $fullscreenRadioButton.Add_CheckedChanged({
     $stretchCheckBox.Enabled = $fullscreenRadioButton.Checked
 })
@@ -603,21 +475,22 @@ $dialog = New-Object System.Windows.Forms.OpenFileDialog
 $dialog.Filter = 'Images|*.jpg;*.jpeg;*.png;*.bmp;*.gif;*.tif;*.tiff'
 $dialog.Multiselect = $false
 
-# FIX #8 : Libérer OpenFileDialog à la fermeture de la form
-$form.Add_FormClosed({
-    $dialog.Dispose()
-})
+$form.Add_FormClosed({ $dialog.Dispose() })
 
-# Tooltips
 $tooltip = New-Object System.Windows.Forms.ToolTip
 $tooltip.AutoPopDelay = 5000
 $tooltip.InitialDelay = 500
 $tooltip.ReshowDelay = 500
 $tooltip.ShowAlways = $false
 
-$tooltip.SetToolTip($browseButton, "Browse and select an image file to set as wallpaper")
-$tooltip.SetToolTip($tileRadioButton, "Display mode: Tile repeats the image across the entire screen")
-$tooltip.SetToolTip($fullscreenRadioButton, "Display mode: Full screen displays the image centered or stretched without tiling")
+$tooltip.SetToolTip($browseButton,         "Browse and select an image file to set as wallpaper")
+$tooltip.SetToolTip($tileRadioButton,      "Display mode: Tile repeats the image across the entire screen")
+$tooltip.SetToolTip($fullscreenRadioButton,"Display mode: Full screen displays the image centered or stretched without tiling")
+$tooltip.SetToolTip($stretchCheckBox,      "When enabled: Stretches image to fill screen`nWhen disabled: Fits image on the screen (keeps aspect ratio)")
+$tooltip.SetToolTip($useRegistryCheckBox,  "Use registry method instead of Windows API (try this if the default method fails on restricted systems)")
+$tooltip.SetToolTip($applyButton,          "Apply the selected wallpaper with the chosen settings")
+$tooltip.SetToolTip($exitButton,           "Close the application without applying changes")
+$tooltip.SetToolTip($previewBox,           "Preview of the selected image")
 
 $defaultMonitorTooltip = $UITexts.MonitorTooltip
 $tooltip.SetToolTip($monitorComboBox, $defaultMonitorTooltip)
@@ -632,21 +505,11 @@ $useRegistryCheckBox.Add_CheckedChanged({
     }
 })
 
-$tooltip.SetToolTip($stretchCheckBox, "When enabled: Stretches image to fill screen`nWhen disabled: Fits image on the screen (keeps aspect ratio)")
-$tooltip.SetToolTip($useRegistryCheckBox, "Use registry method instead of Windows API (try this if the default method fails on restricted systems)")
-$tooltip.SetToolTip($applyButton, "Apply the selected wallpaper with the chosen settings")
-$tooltip.SetToolTip($exitButton, "Close the application without applying changes")
-# FIX #7 : Suppression du doublon tooltip sur previewBox
-$tooltip.SetToolTip($previewBox, "Preview of the selected image")
-
 $browseButton.Add_Click({
     if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         $pathBox.Text = $dialog.FileName
         try {
-            if ($previewBox.Image) {
-                $previewBox.Image.Dispose()
-                $previewBox.Image = $null
-            }
+            if ($previewBox.Image) { $previewBox.Image.Dispose(); $previewBox.Image = $null }
             $previewBox.Image = [System.Drawing.Image]::FromFile($dialog.FileName)
         } catch {
             [System.Windows.Forms.MessageBox]::Show($UITexts.CouldNotLoadPreview, $UITexts.Warning, 'OK', 'Warning') | Out-Null
@@ -654,9 +517,7 @@ $browseButton.Add_Click({
     }
 })
 
-$exitButton.Add_Click({
-    $form.Close()
-})
+$exitButton.Add_Click({ $form.Close() })
 
 $applyButton.Add_Click({
     Write-Host ""
@@ -666,29 +527,30 @@ $applyButton.Add_Click({
     $displayMode = if ($tileRadioButton.Checked) { "tile" } else { "fullscreen" }
 
     $monitorSelection = $monitorComboBox.SelectedItem
-    $selectedMonitor = "primary"
-    $isSpanned = $false
+    $selectedMonitor  = "primary"
+    $isSpanned        = $false
 
     if ($monitorSelection -eq 'Spanned') {
         $isSpanned = $true
     } elseif ($monitorSelection -eq 'Current') {
-        # Note : résolu au moment du clic — si la fenêtre a été déplacée entre la sélection
-        # et le clic, le moniteur retourné reflète la position actuelle de la fenêtre.
-        $centerX = $form.Location.X + ($form.Width / 2)
+        # On passe "primary" a Set-Wallpaper : SPI est global de toute facon,
+        # la distinction d'ecran est conservee dans le log pour information
+        $centerX = $form.Location.X + ($form.Width  / 2)
         $centerY = $form.Location.Y + ($form.Height / 2)
-        $screen = [System.Windows.Forms.Screen]::FromPoint([System.Drawing.Point]::new($centerX, $centerY))
-        $selectedMonitor = $screen.DeviceName
-        Write-Host "[DEBUG] 'Current' option resolved to screen: $selectedMonitor (from X:$centerX, Y:$centerY)" -ForegroundColor Yellow
+        $screen  = [System.Windows.Forms.Screen]::FromPoint([System.Drawing.Point]::new($centerX, $centerY))
+        Write-Host "[DEBUG] 'Current' resolved to screen: $($screen.DeviceName) (center X:$centerX Y:$centerY)" -ForegroundColor Yellow
+        $selectedMonitor = "primary"
     } elseif ($monitorSelection -eq 'All') {
         $selectedMonitor = "all"
     } elseif ($monitorSelection -eq 'Primary') {
-        $selectedMonitor = [System.Windows.Forms.Screen]::PrimaryScreen.DeviceName
-        Write-Host "[DEBUG] 'Primary' option resolved to screen: $selectedMonitor" -ForegroundColor Yellow
-    } else {
+        Write-Host "[DEBUG] 'Primary' selected." -ForegroundColor Yellow
         $selectedMonitor = "primary"
+    } else {
+        # Ecran specifique nomme - SPI sera utilise, monitor transmis pour log
         foreach ($m in $monitors) {
             if ($m.Name -eq $monitorSelection) {
                 $selectedMonitor = $m.Screen.DeviceName
+                Write-Host "[DEBUG] Named monitor '$monitorSelection' -> $selectedMonitor" -ForegroundColor Yellow
                 break
             }
         }
@@ -728,11 +590,9 @@ $applyButton.Add_Click({
 
         $successDialog.AcceptButton = $okButton
         $successDialog.CancelButton = $okButton
-
         $successDialog.Controls.Add($iconBox)
         $successDialog.Controls.Add($messageLabel)
         $successDialog.Controls.Add($okButton)
-
         $successDialog.ShowDialog() | Out-Null
         $successDialog.Dispose()
     }
