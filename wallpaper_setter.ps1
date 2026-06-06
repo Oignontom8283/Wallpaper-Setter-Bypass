@@ -18,6 +18,7 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 # ── Native interop (shared by all methods) ─────────────────────────────────────
+if (-not ([System.Management.Automation.PSTypeName]'WallpaperNative').Type) {
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -80,6 +81,7 @@ public static class WallpaperNative {
     public static uint COM_MonitorCount() => GetCOM().GetMonitorDevicePathCount();
 }
 '@ -ErrorAction SilentlyContinue
+} # end if WallpaperNative not loaded
 
 # ==============================================================================
 #  UTILITIES
@@ -460,7 +462,7 @@ $monitors = Get-MonitorList
 
 # ── Dimensions ────────────────────────────────────────────────────────────────
 $formW   = 820
-$formH   = 400
+$formH   = 370
 $leftW   = 420   # left panel width
 $previewX= $leftW + 10
 $previewW= $formW - $previewX - 20
@@ -519,12 +521,12 @@ $methodRadios["COM"].Checked = $true
 $paramsGroup = New-Object System.Windows.Forms.GroupBox
 $paramsGroup.Text     = "Options"
 $paramsGroup.Location = New-Object System.Drawing.Point(12, 118)
-$paramsGroup.Size     = New-Object System.Drawing.Size($($leftW - 24), 200)
+$paramsGroup.Size     = New-Object System.Drawing.Size($($leftW - 24), 160)
 
 # ── Preview box ───────────────────────────────────────────────────────────────
 $previewBox = New-Object System.Windows.Forms.PictureBox
 $previewBox.Location  = New-Object System.Drawing.Point($previewX, 14)
-$previewBox.Size      = New-Object System.Drawing.Size($previewW, 320)
+$previewBox.Size      = New-Object System.Drawing.Size($previewW, 290)
 $previewBox.BorderStyle = 'FixedSingle'
 $previewBox.SizeMode  = 'Zoom'
 $previewBox.BackColor = [System.Drawing.Color]::FromArgb(220,220,220)
@@ -533,13 +535,13 @@ $tooltip.SetToolTip($previewBox, "Preview of selected image")
 # ── Action buttons ────────────────────────────────────────────────────────────
 $applyBtn = New-Object System.Windows.Forms.Button
 $applyBtn.Text     = "Apply"
-$applyBtn.Location = New-Object System.Drawing.Point(12, 330)
+$applyBtn.Location = New-Object System.Drawing.Point(12, 292)
 $applyBtn.Size     = New-Object System.Drawing.Size(100, 30)
 $tooltip.SetToolTip($applyBtn, "Apply the wallpaper with the chosen settings")
 
 $exitBtn = New-Object System.Windows.Forms.Button
 $exitBtn.Text     = "Exit"
-$exitBtn.Location = New-Object System.Drawing.Point(122, 330)
+$exitBtn.Location = New-Object System.Drawing.Point(122, 292)
 $exitBtn.Size     = New-Object System.Drawing.Size(100, 30)
 $tooltip.SetToolTip($exitBtn, "Close without applying")
 
@@ -746,12 +748,12 @@ function Get-GUIParams {
 
 # ── Wire method radio buttons ─────────────────────────────────────────────────
 foreach ($mKey in $methodRadios.Keys) {
-    $rb  = $methodRadios[$mKey]
-    $key = $mKey
+    $rb = $methodRadios[$mKey]
     $rb.Add_CheckedChanged({
-        if ($rb.Checked) {
+        $sender = $args[0]
+        if ($sender.Checked) {
             $script:EnabledWhenJobs = @()
-            Update-ParamsPanel -MethodKey $key
+            Update-ParamsPanel -MethodKey $sender.Tag
         }
     })
 }
