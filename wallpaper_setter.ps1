@@ -3,6 +3,9 @@
     [ValidateSet("COM", "SPI", "Registry")]
     [string]$Method = "COM",
     [string]$Monitor    = "primary",   # COM only : primary | all | current | 0,1,2...
+    [ValidateSet("Center","Tile","Stretch","Fit","Fill","Span")]
+    [string]$Position   = "Fill",      # COM only
+    [string]$BgColor    = "Black",     # COM only
     [ValidateSet("tile", "fullscreen")]
     [string]$DisplayMode = "fullscreen", # SPI + Registry
     [switch]$Stretch,                  # SPI only
@@ -107,6 +110,43 @@ public static class WallpaperNative {
         IDesktopWallpaper dw = GetCOM();
         return dw.GetMonitorDevicePathCount();
     }
+
+    // Position values: 0=Center, 1=Tile, 2=Stretch, 3=Fit, 4=Fill, 5=Span
+    public static void COM_SetPosition(uint position) {
+        IDesktopWallpaper dw = GetCOM();
+        dw.SetPosition(position);
+    }
+
+    public static void COM_SetAllWithPosition(string path, uint position) {
+        IDesktopWallpaper dw = GetCOM();
+        dw.SetPosition(position);
+        dw.SetWallpaper(null, path);
+    }
+
+    public static void COM_SetMonitorWithPosition(string devPath, string path, uint position) {
+        IDesktopWallpaper dw = GetCOM();
+        dw.SetPosition(position);
+        dw.SetWallpaper(devPath, path);
+    }
+
+    // color: 0x00BBGGRR (Windows COLORREF)
+    public static void COM_SetBackgroundColor(uint color) {
+        IDesktopWallpaper dw = GetCOM();
+        dw.SetBackgroundColor(color);
+    }
+
+    public static string COM_GetMonitorDevPath(int left, int top) {
+        IDesktopWallpaper dw = GetCOM();
+        uint n = dw.GetMonitorDevicePathCount();
+        for (uint i = 0; i < n; i++) {
+            string dev = dw.GetMonitorDevicePathAt(i);
+            RECT r;
+            dw.GetMonitorRECT(dev, out r);
+            if (r.Left == left && r.Top == top) { return dev; }
+        }
+        if (n > 0) { return dw.GetMonitorDevicePathAt(0); }
+        return null;
+    }
 }
 '@
 } # end guard
@@ -174,45 +214,99 @@ $WallpaperMethods = [ordered]@{
     # ── COM (IDesktopWallpaper) ──────────────────────────────────────────────
     COM = @{
         Name        = "COM — IDesktopWallpaper"
-        Description = "Uses the Windows Shell COM interface. Per-monitor support, most reliable on modern Windows."
+        Description = "Uses the Windows Shell COM interface. Per-monitor support, position styles, background color. Most reliable on modern Windows."
         Params      = [ordered]@{
             Monitor = @{
                 Label   = "Monitor"
                 Type    = "Combo"
                 Default = "primary"
-                Choices = @("current","primary","all")   # dynamic monitors appended by GUI
+                Choices = @("current","primary","all")
                 CLIName = "Monitor"
                 Tooltip = "Target monitor(s) for the wallpaper"
+            }
+            Position = @{
+                Label   = "Position"
+                Type    = "Radio"
+                Default = "Fill"
+                Choices = @("Center","Tile","Stretch","Fit","Fill","Span")
+                CLIName = "Position"
+                Tooltip = "Center: centered · Tile: repeated · Stretch: distorted fill · Fit: letterboxed · Fill: cropped fill · Span: across all monitors"
+            }
+            BgColor = @{
+                Label   = "Background color"
+                Type    = "Combo"
+                Default = "Black"
+                Choices = @("Black","White","Gray","Dark Gray","Navy","Dark Green","Maroon","Custom…")
+                CLIName = "BgColor"
+                Tooltip = "Color shown behind the wallpaper when it does not cover the full screen"
             }
         }
         Apply = {
             param([string]$Path, [hashtable]$Params)
-            $mon = $Params.Monitor
-            Write-Log INFO "COM method — monitor: $mon"
+            $mon      = $Params.Monitor
+            $position = $Params.Position
+            $bgColor  = $Params.BgColor
+
+            # Map position name to COM uint value
+            $posMap = @{ Center=0; Tile=1; Stretch=2; Fit=3; Fill=4; Span=5 }
+            $posVal = if ($posMap.ContainsKey($position)) { [uint32]$posMap[$position] } else { [uint32]4 }
+
+            # Map color name to COLORREF (0x00BBGGRR)
+            $colorMap = @{
+                'Black'     = [uint32]0x00000000
+                'White'     = [uint32]0x00FFFFFF
+                'Gray'      = [uint32]0x00808080
+                'Dark Gray' = [uint32]0x00404040
+                'Navy'      = [uint32]0x00800000   # COLORREF is BGR
+                'Dark Green'= [uint32]0x00008000
+                'Maroon'    = [uint32]0x00000080
+            }
+            $colorVal = if ($bgColor -like 'Custom:#*') {
+                # Parse #RRGGBB → COLORREF 0x00BBGGRR
+                $hex = $bgColor -replace 'Custom:#',''
+                $r = [Convert]::ToUInt32($hex.Substring(0,2), 16)
+                $g = [Convert]::ToUInt32($hex.Substring(2,2), 16)
+                $b = [Convert]::ToUInt32($hex.Substring(4,2), 16)
+                [uint32](($b -shl 16) -bor ($g -shl 8) -bor $r)
+            } elseif ($colorMap.ContainsKey($bgColor)) {
+                $colorMap[$bgColor]
+            } else {
+                [uint32]0
+            }
+
+            Write-Log INFO "COM method — monitor:$mon position:$position($posVal) bg:$bgColor"
             try {
-                if ($mon -eq "all") {
-                    [WallpaperNative]::COM_SetAll($Path)
+                [WallpaperNative]::COM_SetBackgroundColor($colorVal)
+
+                if ($mon -eq "all" -or $position -eq "Span") {
+                    [WallpaperNative]::COM_SetAllWithPosition($Path, $posVal)
                 } else {
                     $target = $null
                     if ($mon -eq "primary") {
                         $target = [System.Windows.Forms.Screen]::PrimaryScreen
                     } elseif ($mon -eq "current") {
-                        $target = [System.Windows.Forms.Screen]::PrimaryScreen  # CLI fallback
+                        $target = [System.Windows.Forms.Screen]::PrimaryScreen
                     } elseif ($mon -match '^\d+$') {
                         $idx = [int]$mon
                         $all = [System.Windows.Forms.Screen]::AllScreens
                         if ($idx -lt $all.Count) { $target = $all[$idx] }
                     } else {
-                        # DeviceName passed directly (GUI "current" resolution)
                         foreach ($s in [System.Windows.Forms.Screen]::AllScreens) {
                             if ($s.DeviceName -eq $mon) { $target = $s; break }
                         }
                     }
+
                     if ($target) {
-                        [WallpaperNative]::COM_SetByRect($target.Bounds.Left, $target.Bounds.Top, $Path)
+                        $devPath = [WallpaperNative]::COM_GetMonitorDevPath($target.Bounds.Left, $target.Bounds.Top)
+                        if ($devPath) {
+                            [WallpaperNative]::COM_SetMonitorWithPosition($devPath, $Path, $posVal)
+                        } else {
+                            Write-Log WARNING "Could not resolve monitor device path, applying to all"
+                            [WallpaperNative]::COM_SetAllWithPosition($Path, $posVal)
+                        }
                     } else {
-                        Write-Log WARNING "Monitor '$mon' not found — falling back to index 0"
-                        [WallpaperNative]::COM_SetByIndex(0, $Path)
+                        Write-Log WARNING "Monitor '$mon' not found — applying to all"
+                        [WallpaperNative]::COM_SetAllWithPosition($Path, $posVal)
                     }
                 }
                 Write-Log SUCCESS "COM method succeeded"
@@ -403,6 +497,8 @@ METHOD-SPECIFIC OPTIONS
 
   COM   (default, per-monitor)
     -Monitor <value>    primary (default) | all | current | 0 | 1 | 2 …
+    -Position <value>   Center | Tile | Stretch | Fit | Fill (default) | Span
+    -BgColor <value>    Black (default) | White | Gray | Dark Gray | Navy | Dark Green | Maroon
 
   SPI   (global, classic Win32)
     -DisplayMode        fullscreen (default) | tile
@@ -452,6 +548,8 @@ if (-not [string]::IsNullOrWhiteSpace($Path)) {
         # Check if the corresponding script parameter was supplied
         switch ($cliName) {
             "Monitor"     { $val = $Monitor }
+            "Position"    { $val = $Position }
+            "BgColor"     { $val = $BgColor }
             "DisplayMode" { $val = $DisplayMode }
             "Stretch"     { $val = $Stretch.IsPresent }
             "Spanned"     { $val = $Spanned.IsPresent }
@@ -490,7 +588,7 @@ $monitors = Get-MonitorList
 
 # ── Dimensions ────────────────────────────────────────────────────────────────
 $formW   = 820
-$formH   = 370
+$formH   = 480
 $leftW   = 420   # left panel width
 $previewX= $leftW + 10
 $previewW= $formW - $previewX - 20
@@ -549,12 +647,12 @@ $methodRadios["COM"].Checked = $true
 $paramsGroup = New-Object System.Windows.Forms.GroupBox
 $paramsGroup.Text     = "Options"
 $paramsGroup.Location = New-Object System.Drawing.Point(12, 118)
-$paramsGroup.Size     = New-Object System.Drawing.Size($($leftW - 24), 160)
+$paramsGroup.Size     = New-Object System.Drawing.Size($($leftW - 24), 290)
 
 # ── Preview box ───────────────────────────────────────────────────────────────
 $previewBox = New-Object System.Windows.Forms.PictureBox
 $previewBox.Location  = New-Object System.Drawing.Point($previewX, 14)
-$previewBox.Size      = New-Object System.Drawing.Size($previewW, 290)
+$previewBox.Size      = New-Object System.Drawing.Size($previewW, 410)
 $previewBox.BorderStyle = 'FixedSingle'
 $previewBox.SizeMode  = 'Zoom'
 $previewBox.BackColor = [System.Drawing.Color]::FromArgb(220,220,220)
@@ -563,13 +661,13 @@ $tooltip.SetToolTip($previewBox, "Preview of selected image")
 # ── Action buttons ────────────────────────────────────────────────────────────
 $applyBtn = New-Object System.Windows.Forms.Button
 $applyBtn.Text     = "Apply"
-$applyBtn.Location = New-Object System.Drawing.Point(12, 292)
+$applyBtn.Location = New-Object System.Drawing.Point(12, 420)
 $applyBtn.Size     = New-Object System.Drawing.Size(100, 30)
 $tooltip.SetToolTip($applyBtn, "Apply the wallpaper with the chosen settings")
 
 $exitBtn = New-Object System.Windows.Forms.Button
 $exitBtn.Text     = "Exit"
-$exitBtn.Location = New-Object System.Drawing.Point(122, 292)
+$exitBtn.Location = New-Object System.Drawing.Point(122, 420)
 $exitBtn.Size     = New-Object System.Drawing.Size(100, 30)
 $tooltip.SetToolTip($exitBtn, "Close without applying")
 
@@ -671,6 +769,47 @@ function Update-ParamsPanel {
                 $idx = $cb.Items.IndexOf($def)
                 $cb.SelectedIndex = if ($idx -ge 0) { $idx } else { 0 }
 
+                # For BgColor combo, open ColorDialog on "Custom…"
+                if ($pKey -eq "BgColor") {
+                    $colorSwatch = New-Object System.Windows.Forms.Panel
+                    $colorSwatch.Location  = New-Object System.Drawing.Point(228, $($y + 2))
+                    $colorSwatch.Size      = New-Object System.Drawing.Size(18, 18)
+                    $colorSwatch.BorderStyle = 'FixedSingle'
+                    $colorSwatch.BackColor = [System.Drawing.Color]::Black
+                    $paramsGroup.Controls.Add($colorSwatch)
+
+                    $script:CustomColor = [System.Drawing.Color]::Black
+                    $swatchRef = $colorSwatch
+
+                    $cb.Add_SelectedIndexChanged({
+                        $sel = $cb.SelectedItem.ToString()
+                        $namedMap = @{
+                            'Black'     = [System.Drawing.Color]::Black
+                            'White'     = [System.Drawing.Color]::White
+                            'Gray'      = [System.Drawing.Color]::Gray
+                            'Dark Gray' = [System.Drawing.Color]::FromArgb(64,64,64)
+                            'Navy'      = [System.Drawing.Color]::Navy
+                            'Dark Green'= [System.Drawing.Color]::DarkGreen
+                            'Maroon'    = [System.Drawing.Color]::Maroon
+                        }
+                        if ($sel -eq 'Custom…') {
+                            $cd = New-Object System.Windows.Forms.ColorDialog
+                            $cd.Color = $script:CustomColor
+                            $cd.FullOpen = $true
+                            if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                                $script:CustomColor = $cd.Color
+                                $swatchRef.BackColor = $cd.Color
+                            } else {
+                                # revert to Black if cancelled
+                                $cb.SelectedIndex = 0
+                            }
+                            $cd.Dispose()
+                        } elseif ($namedMap.ContainsKey($sel)) {
+                            $swatchRef.BackColor = $namedMap[$sel]
+                        }
+                    })
+                }
+
                 $paramsGroup.Controls.Add($cb)
                 $controlStore["$MethodKey.$pKey"] = $cb
                 $y += 28
@@ -700,11 +839,12 @@ function Update-ParamsPanel {
     foreach ($job in $script:EnabledWhenJobs) {
         $radioMap = $controlStore[$job.RadioKey]
         if ($radioMap) {
+            $sb = [scriptblock]$job.Action
             foreach ($rb in $radioMap.Values) {
-                $jRef = $job
-                $rb.Add_CheckedChanged({ & $jRef.Action })
+                $capturedSb = $sb
+                $rb.Add_CheckedChanged($capturedSb)
             }
-            & $job.Action  # initial state
+            & $sb  # initial state
         }
     }
 }
@@ -759,6 +899,11 @@ function Get-GUIParams {
                                 }
                             }
                         }
+                    }
+                    # Resolve "Custom…" to the hex color string for the Apply scriptblock
+                    if ($pKey -eq "BgColor" -and $val -eq 'Custom…') {
+                        $c = $script:CustomColor
+                        $val = "Custom:#$($c.R.ToString('X2'))$($c.G.ToString('X2'))$($c.B.ToString('X2'))"
                     }
                     $result[$pKey] = $val
                 } else {
