@@ -18,24 +18,34 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 # ── Native interop (shared by all methods) ─────────────────────────────────────
+# Guard: only compile once per session (re-running the script in the same PS
+# session would cause a "type already exists" compiler error otherwise).
 if (-not ([System.Management.Automation.PSTypeName]'WallpaperNative').Type) {
-Add-Type @'
+    Add-Type -Language CSharp -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 
 [StructLayout(LayoutKind.Sequential)]
-public struct RECT { public int Left, Top, Right, Bottom; }
+public struct RECT {
+    public int Left;
+    public int Top;
+    public int Right;
+    public int Bottom;
+}
 
-[ComImport, Guid("B92B56A9-8B55-4E14-9A89-0199BBB6F93B"),
- InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+[ComImport]
+[Guid("B92B56A9-8B55-4E14-9A89-0199BBB6F93B")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 public interface IDesktopWallpaper {
     void SetWallpaper([MarshalAs(UnmanagedType.LPWStr)] string monitorID,
                       [MarshalAs(UnmanagedType.LPWStr)] string wallpaper);
-    [return: MarshalAs(UnmanagedType.LPWStr)] string GetWallpaper(
-        [MarshalAs(UnmanagedType.LPWStr)] string monitorID);
-    [return: MarshalAs(UnmanagedType.LPWStr)] string GetMonitorDevicePathAt(uint monitorIndex);
+    [return: MarshalAs(UnmanagedType.LPWStr)]
+    string GetWallpaper([MarshalAs(UnmanagedType.LPWStr)] string monitorID);
+    [return: MarshalAs(UnmanagedType.LPWStr)]
+    string GetMonitorDevicePathAt(uint monitorIndex);
     uint GetMonitorDevicePathCount();
-    void GetMonitorRECT([MarshalAs(UnmanagedType.LPWStr)] string monitorID, out RECT displayRect);
+    void GetMonitorRECT([MarshalAs(UnmanagedType.LPWStr)] string monitorID,
+                        out RECT displayRect);
     void SetBackgroundColor(uint color);
     uint GetBackgroundColor();
     void SetPosition(uint position);
@@ -44,44 +54,62 @@ public interface IDesktopWallpaper {
     IntPtr GetSlideshow();
     void SetSlideshowOptions(uint options, uint slideshowTick);
     void GetSlideshowOptions(out uint options, out uint slideshowTick);
-    void AdvanceSlideshow([MarshalAs(UnmanagedType.LPWStr)] string monitorID, uint direction);
+    void AdvanceSlideshow([MarshalAs(UnmanagedType.LPWStr)] string monitorID,
+                          uint direction);
     uint GetStatus();
     void Enable(bool enable);
 }
 
-[ComImport, Guid("C2CF3110-460E-4fc1-B9D0-8A1C0C9CC4BD")]
+[ComImport]
+[Guid("C2CF3110-460E-4fc1-B9D0-8A1C0C9CC4BD")]
 public class DesktopWallpaperCOM { }
 
 public static class WallpaperNative {
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern bool SystemParametersInfo(int uAction, int uParam,
                                                    string lpvParam, int fuWinIni);
 
-    // COM helpers
-    public static IDesktopWallpaper GetCOM() => (IDesktopWallpaper)new DesktopWallpaperCOM();
+    private static IDesktopWallpaper GetCOM() {
+        return (IDesktopWallpaper)new DesktopWallpaperCOM();
+    }
 
     public static void COM_SetAll(string path) {
-        GetCOM().SetWallpaper(null, path);
+        IDesktopWallpaper dw = GetCOM();
+        dw.SetWallpaper(null, path);
     }
+
     public static void COM_SetByRect(int left, int top, string path) {
-        var dw = GetCOM();
+        IDesktopWallpaper dw = GetCOM();
         uint n = dw.GetMonitorDevicePathCount();
         for (uint i = 0; i < n; i++) {
             string dev = dw.GetMonitorDevicePathAt(i);
-            RECT r; dw.GetMonitorRECT(dev, out r);
-            if (r.Left == left && r.Top == top) { dw.SetWallpaper(dev, path); return; }
+            RECT r;
+            dw.GetMonitorRECT(dev, out r);
+            if (r.Left == left && r.Top == top) {
+                dw.SetWallpaper(dev, path);
+                return;
+            }
         }
-        if (n > 0) dw.SetWallpaper(dw.GetMonitorDevicePathAt(0), path);
+        if (n > 0) {
+            dw.SetWallpaper(dw.GetMonitorDevicePathAt(0), path);
+        }
     }
+
     public static void COM_SetByIndex(uint idx, string path) {
-        var dw = GetCOM();
-        if (idx < dw.GetMonitorDevicePathCount())
+        IDesktopWallpaper dw = GetCOM();
+        uint n = dw.GetMonitorDevicePathCount();
+        if (idx < n) {
             dw.SetWallpaper(dw.GetMonitorDevicePathAt(idx), path);
+        }
     }
-    public static uint COM_MonitorCount() => GetCOM().GetMonitorDevicePathCount();
+
+    public static uint COM_MonitorCount() {
+        IDesktopWallpaper dw = GetCOM();
+        return dw.GetMonitorDevicePathCount();
+    }
 }
-'@ -ErrorAction SilentlyContinue
-} # end if WallpaperNative not loaded
+'@
+} # end guard
 
 # ==============================================================================
 #  UTILITIES
