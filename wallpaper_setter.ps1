@@ -789,14 +789,16 @@ function Update-ParamsPanel {
                     $colorSwatch.BackColor   = [System.Drawing.Color]::Black
                     $paramsInner.Controls.Add($colorSwatch)
 
-                    $script:CustomColor = [System.Drawing.Color]::Black
-                    $swatchRef = $colorSwatch
+                    $script:CustomColor    = [System.Drawing.Color]::Black
+                    $script:ColorSwatchCtl = $colorSwatch   # script-scope ref, survives panel rebuild
 
                     $cb.Add_SelectedIndexChanged({
                         $sender = $args[0]
                         if ($null -eq $sender -or $sender.SelectedIndex -lt 0 -or $null -eq $sender.SelectedItem) { return }
                         $sel = $sender.SelectedItem.ToString()
                         if ([string]::IsNullOrEmpty($sel)) { return }
+                        $swatch = $script:ColorSwatchCtl
+                        if ($null -eq $swatch -or $swatch.IsDisposed) { return }
                         $namedMap = @{
                             'Black'     = [System.Drawing.Color]::Black
                             'White'     = [System.Drawing.Color]::White
@@ -811,14 +813,14 @@ function Update-ParamsPanel {
                             $cd.Color    = $script:CustomColor
                             $cd.FullOpen = $true
                             if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-                                $script:CustomColor  = $cd.Color
-                                $swatchRef.BackColor = $cd.Color
+                                $script:CustomColor = $cd.Color
+                                $swatch.BackColor   = $cd.Color
                             } else {
                                 $sender.SelectedIndex = 0
                             }
                             $cd.Dispose()
                         } elseif ($namedMap.ContainsKey($sel)) {
-                            $swatchRef.BackColor = $namedMap[$sel]
+                            $swatch.BackColor = $namedMap[$sel]
                         }
                     })
                 }
