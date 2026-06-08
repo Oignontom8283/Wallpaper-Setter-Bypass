@@ -587,11 +587,33 @@ if (-not [string]::IsNullOrWhiteSpace($Path)) {
 $monitors = Get-MonitorList
 
 # ── Dimensions ────────────────────────────────────────────────────────────────
-$formW   = 820
-$formH   = 480
-$leftW   = 420   # left panel width
-$previewX= $leftW + 10
-$previewW= $formW - $previewX - 20
+# Layout: left panel | gap | square preview | marginX
+$leftW    = 410          # left panel width
+$gap      = 10           # gap between left panel and preview
+$marginX  = 12           # outer margin used on ALL sides
+$marginY  = 12
+
+# Preview X starts after: marginX + leftW + gap
+$previewX = $marginX + $leftW + $gap   # = 432
+
+# Form client width: previewX + previewS + marginX  →  previewS = formClientW - previewX - marginX
+# We target a square preview of 320px, then derive formW from that
+$previewS = 320          # square preview
+$previewY = $marginY     # = 12
+
+# Total form Size (includes title bar ~30 + border ~8 ≈ 40px chrome)
+$formClientW = $previewX + $previewS + $marginX   # = 432+320+12 = 764
+$formW       = $formClientW + 16                   # WinForms FixedDialog adds ~8px each side
+
+$btnY        = $marginY + $previewS + $gap         # = 12+320+10 = 342
+$formH       = $btnY + 30 + $marginY + 40          # = 342+30+12+40 = 424
+
+# Left panel sub-layout
+$fileRowY    = 14
+$methodGrpY  = 46
+$methodGrpH  = 60
+$optionsGrpY = $methodGrpY + $methodGrpH + 8   # = 114
+$optionsGrpH = $btnY - $optionsGrpY - 8         # fills space above buttons = 362-114-8 = 240
 
 # ── Form ──────────────────────────────────────────────────────────────────────
 $form = New-Object System.Windows.Forms.Form
@@ -609,24 +631,24 @@ $tooltip.InitialDelay = 400
 $fileLabel = New-Object System.Windows.Forms.Label
 $fileLabel.Text     = "Image:"
 $fileLabel.AutoSize = $true
-$fileLabel.Location = New-Object System.Drawing.Point(12, 18)
+$fileLabel.Location = New-Object System.Drawing.Point($marginX, 18)
 
 $pathBox = New-Object System.Windows.Forms.TextBox
-$pathBox.Location = New-Object System.Drawing.Point(60, 14)
+$pathBox.Location = New-Object System.Drawing.Point(60, $fileRowY)
 $pathBox.Size     = New-Object System.Drawing.Size(260, 22)
 $pathBox.ReadOnly = $true
 
 $browseBtn = New-Object System.Windows.Forms.Button
 $browseBtn.Text     = "Browse…"
-$browseBtn.Location = New-Object System.Drawing.Point(328, 13)
+$browseBtn.Location = New-Object System.Drawing.Point(328, $($fileRowY - 1))
 $browseBtn.Size     = New-Object System.Drawing.Size(80, 25)
 $tooltip.SetToolTip($browseBtn, "Select an image file (jpg, png, bmp, gif, tiff)")
 
 # ── Method selector (radio buttons) ───────────────────────────────────────────
 $methodGroup = New-Object System.Windows.Forms.GroupBox
 $methodGroup.Text     = "Method"
-$methodGroup.Location = New-Object System.Drawing.Point(12, 48)
-$methodGroup.Size     = New-Object System.Drawing.Size($($leftW - 24), 60)
+$methodGroup.Location = New-Object System.Drawing.Point($marginX, $methodGrpY)
+$methodGroup.Size     = New-Object System.Drawing.Size($($leftW - $marginX), $methodGrpH)
 
 $methodRadios = [ordered]@{}
 $mx = 10
@@ -646,27 +668,27 @@ $methodRadios["COM"].Checked = $true
 # ── Params panel (dynamic, per method) ────────────────────────────────────────
 $paramsGroup = New-Object System.Windows.Forms.GroupBox
 $paramsGroup.Text     = "Options"
-$paramsGroup.Location = New-Object System.Drawing.Point(12, 118)
-$paramsGroup.Size     = New-Object System.Drawing.Size($($leftW - 24), 290)
+$paramsGroup.Location = New-Object System.Drawing.Point($marginX, $optionsGrpY)
+$paramsGroup.Size     = New-Object System.Drawing.Size($($leftW - $marginX), $optionsGrpH)
 
 # Outer scrollable panel — fixed size, clips overflow
 $paramsScroll = New-Object System.Windows.Forms.Panel
 $paramsScroll.Location   = New-Object System.Drawing.Point(4, 18)
-$paramsScroll.Size       = New-Object System.Drawing.Size($($leftW - 24 - 8), 266)
+$paramsScroll.Size       = New-Object System.Drawing.Size($($leftW - $marginX - 8), $($optionsGrpH - 22))
 $paramsScroll.AutoScroll = $true
 $paramsGroup.Controls.Add($paramsScroll)
 
 # Inner panel — grows to fit content, triggers scroll in outer panel
 $paramsInner = New-Object System.Windows.Forms.Panel
 $paramsInner.Location = New-Object System.Drawing.Point(0, 0)
-$paramsInner.Width    = $paramsScroll.Width - 20   # leave room for scrollbar
-$paramsInner.Height   = 10  # will be set dynamically after content is built
+$paramsInner.Width    = $paramsScroll.Width - 20
+$paramsInner.Height   = 10
 $paramsScroll.Controls.Add($paramsInner)
 
 # ── Preview box ───────────────────────────────────────────────────────────────
 $previewBox = New-Object System.Windows.Forms.PictureBox
-$previewBox.Location  = New-Object System.Drawing.Point($previewX, 14)
-$previewBox.Size      = New-Object System.Drawing.Size($previewW, 410)
+$previewBox.Location  = New-Object System.Drawing.Point($previewX, $previewY)
+$previewBox.Size      = New-Object System.Drawing.Size($previewS, $previewS)
 $previewBox.BorderStyle = 'FixedSingle'
 $previewBox.SizeMode  = 'Zoom'
 $previewBox.BackColor = [System.Drawing.Color]::FromArgb(220,220,220)
@@ -675,13 +697,13 @@ $tooltip.SetToolTip($previewBox, "Preview of selected image")
 # ── Action buttons ────────────────────────────────────────────────────────────
 $applyBtn = New-Object System.Windows.Forms.Button
 $applyBtn.Text     = "Apply"
-$applyBtn.Location = New-Object System.Drawing.Point(12, 420)
+$applyBtn.Location = New-Object System.Drawing.Point($marginX, $btnY)
 $applyBtn.Size     = New-Object System.Drawing.Size(100, 30)
 $tooltip.SetToolTip($applyBtn, "Apply the wallpaper with the chosen settings")
 
 $exitBtn = New-Object System.Windows.Forms.Button
 $exitBtn.Text     = "Exit"
-$exitBtn.Location = New-Object System.Drawing.Point(122, 420)
+$exitBtn.Location = New-Object System.Drawing.Point($($marginX + 110), $btnY)
 $exitBtn.Size     = New-Object System.Drawing.Size(100, 30)
 $tooltip.SetToolTip($exitBtn, "Close without applying")
 
