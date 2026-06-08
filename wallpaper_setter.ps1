@@ -694,6 +694,22 @@ $previewBox.SizeMode  = 'Zoom'
 $previewBox.BackColor = [System.Drawing.Color]::FromArgb(220,220,220)
 $tooltip.SetToolTip($previewBox, "Preview of selected image")
 
+# ── Background color picker (right side, aligned with buttons) ────────────────
+# Swatch shows current color, button opens ColorDialog and applies immediately
+$bgColorSwatch = New-Object System.Windows.Forms.Panel
+$bgColorSwatch.Location    = New-Object System.Drawing.Point($previewX, $btnY)
+$bgColorSwatch.Size        = New-Object System.Drawing.Size(30, 30)
+$bgColorSwatch.BorderStyle = 'FixedSingle'
+$bgColorSwatch.BackColor   = [System.Drawing.Color]::Black
+$bgColorSwatch.Cursor      = [System.Windows.Forms.Cursors]::Hand
+$tooltip.SetToolTip($bgColorSwatch, "Current desktop background color")
+
+$bgColorBtn = New-Object System.Windows.Forms.Button
+$bgColorBtn.Text     = "Background color…"
+$bgColorBtn.Location = New-Object System.Drawing.Point($($previewX + 38), $btnY)
+$bgColorBtn.Size     = New-Object System.Drawing.Size(140, 30)
+$tooltip.SetToolTip($bgColorBtn, "Set the desktop background color (visible when wallpaper doesn't fill the screen)")
+
 # ── Action buttons ────────────────────────────────────────────────────────────
 $applyBtn = New-Object System.Windows.Forms.Button
 $applyBtn.Text     = "Apply"
@@ -993,6 +1009,31 @@ $browseBtn.Add_Click({
     }
 })
 
+# ── Background color button ───────────────────────────────────────────────────
+$bgColorBtn.Add_Click({
+    $cd = New-Object System.Windows.Forms.ColorDialog
+    $cd.Color    = $bgColorSwatch.BackColor
+    $cd.FullOpen = $true
+    if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        $bgColorSwatch.BackColor = $cd.Color
+        # Convert System.Drawing.Color → COLORREF (0x00BBGGRR)
+        $r = $cd.Color.R; $g = $cd.Color.G; $b = $cd.Color.B
+        $colorRef = [uint32](($b -shl 16) -bor ($g -shl 8) -bor $r)
+        try {
+            [WallpaperNative]::COM_SetBackgroundColor($colorRef)
+            Write-Log SUCCESS "Background color applied: R=$r G=$g B=$b"
+        } catch {
+            [System.Windows.Forms.MessageBox]::Show(
+                "Failed to apply background color:`n$($_.Exception.Message)",
+                "Error",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Error
+            ) | Out-Null
+        }
+    }
+    $cd.Dispose()
+})
+
 # ── Apply button ──────────────────────────────────────────────────────────────
 $applyBtn.Add_Click({
     $activeMethod = ($methodRadios.GetEnumerator() | Where-Object { $_.Value.Checked } | Select-Object -First 1).Key
@@ -1025,7 +1066,8 @@ $form.Add_FormClosed({ $dialog.Dispose() })
 $form.Controls.AddRange(@(
     $fileLabel, $pathBox, $browseBtn,
     $methodGroup, $paramsGroup,
-    $previewBox, $applyBtn, $exitBtn
+    $previewBox, $bgColorSwatch, $bgColorBtn,
+    $applyBtn, $exitBtn
 ))
 
 # Initial panel render
