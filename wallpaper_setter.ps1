@@ -649,6 +649,20 @@ $paramsGroup.Text     = "Options"
 $paramsGroup.Location = New-Object System.Drawing.Point(12, 118)
 $paramsGroup.Size     = New-Object System.Drawing.Size($($leftW - 24), 290)
 
+# Outer scrollable panel — fixed size, clips overflow
+$paramsScroll = New-Object System.Windows.Forms.Panel
+$paramsScroll.Location   = New-Object System.Drawing.Point(4, 18)
+$paramsScroll.Size       = New-Object System.Drawing.Size($($leftW - 24 - 8), 266)
+$paramsScroll.AutoScroll = $true
+$paramsGroup.Controls.Add($paramsScroll)
+
+# Inner panel — grows to fit content, triggers scroll in outer panel
+$paramsInner = New-Object System.Windows.Forms.Panel
+$paramsInner.Location = New-Object System.Drawing.Point(0, 0)
+$paramsInner.Width    = $paramsScroll.Width - 20   # leave room for scrollbar
+$paramsInner.Height   = 10  # will be set dynamically after content is built
+$paramsScroll.Controls.Add($paramsInner)
+
 # ── Preview box ───────────────────────────────────────────────────────────────
 $previewBox = New-Object System.Windows.Forms.PictureBox
 $previewBox.Location  = New-Object System.Drawing.Point($previewX, 14)
@@ -678,13 +692,13 @@ $controlStore = @{}   # stores live WinForms controls keyed by "METHOD.PARAM"
 function Update-ParamsPanel {
     param([string]$MethodKey)
 
-    $paramsGroup.Controls.Clear()
+    $paramsInner.Controls.Clear()
     $controlStore.Clear()
 
     $methodDef = $WallpaperMethods[$MethodKey]
     if (-not $methodDef) { return }
 
-    $y = 22
+    $y = 6
 
     foreach ($pKey in $methodDef.Params.Keys) {
         $pDef = $methodDef.Params[$pKey]
@@ -696,7 +710,7 @@ function Update-ParamsPanel {
                 $lbl.Text     = $pDef.Label + ":"
                 $lbl.AutoSize = $true
                 $lbl.Location = New-Object System.Drawing.Point(10, $y)
-                $paramsGroup.Controls.Add($lbl)
+                $paramsInner.Controls.Add($lbl)
                 $y += 22
 
                 $radioGroup = @{}
@@ -708,7 +722,7 @@ function Update-ParamsPanel {
                     $rb.Location = New-Object System.Drawing.Point(20, $y)
                     $rb.Checked  = ($choice -eq $pDef.Default)
                     $tooltip.SetToolTip($rb, $pDef.Tooltip)
-                    $paramsGroup.Controls.Add($rb)
+                    $paramsInner.Controls.Add($rb)
                     $radioGroup[$choice] = $rb
                     $y += 22
                 }
@@ -722,7 +736,7 @@ function Update-ParamsPanel {
                 $cb.AutoSize = $true
                 $cb.Location = New-Object System.Drawing.Point(10, $y)
                 $tooltip.SetToolTip($cb, $pDef.Tooltip)
-                $paramsGroup.Controls.Add($cb)
+                $paramsInner.Controls.Add($cb)
                 $controlStore["$MethodKey.$pKey"] = $cb
 
                 # Wire EnabledWhen dependency
@@ -738,7 +752,6 @@ function Update-ParamsPanel {
                             $targetCB.Enabled = $radioMap[$depVal].Checked
                         }
                     }
-                    # attach after all controls built — stored for deferred wire-up
                     $script:EnabledWhenJobs += @{ Action=$updateEnabled; RadioKey="$MethodKey.$depKey"; DepVal=$depVal; Target=$targetCB }
                 }
                 $y += 26
@@ -749,7 +762,7 @@ function Update-ParamsPanel {
                 $lbl.Text     = $pDef.Label + ":"
                 $lbl.AutoSize = $true
                 $lbl.Location = New-Object System.Drawing.Point(10, $y)
-                $paramsGroup.Controls.Add($lbl)
+                $paramsInner.Controls.Add($lbl)
                 $y += 22
 
                 $cb = New-Object System.Windows.Forms.ComboBox
@@ -760,7 +773,6 @@ function Update-ParamsPanel {
 
                 foreach ($c in $pDef.Choices) { [void]$cb.Items.Add($c) }
 
-                # For Monitor combo, append real monitors
                 if ($pKey -eq "Monitor") {
                     foreach ($m in $monitors) { [void]$cb.Items.Add($m.Name) }
                 }
@@ -769,20 +781,22 @@ function Update-ParamsPanel {
                 $idx = $cb.Items.IndexOf($def)
                 $cb.SelectedIndex = if ($idx -ge 0) { $idx } else { 0 }
 
-                # For BgColor combo, open ColorDialog on "Custom…"
                 if ($pKey -eq "BgColor") {
                     $colorSwatch = New-Object System.Windows.Forms.Panel
-                    $colorSwatch.Location  = New-Object System.Drawing.Point(228, $($y + 2))
-                    $colorSwatch.Size      = New-Object System.Drawing.Size(18, 18)
+                    $colorSwatch.Location    = New-Object System.Drawing.Point(228, $($y + 2))
+                    $colorSwatch.Size        = New-Object System.Drawing.Size(18, 18)
                     $colorSwatch.BorderStyle = 'FixedSingle'
-                    $colorSwatch.BackColor = [System.Drawing.Color]::Black
-                    $paramsGroup.Controls.Add($colorSwatch)
+                    $colorSwatch.BackColor   = [System.Drawing.Color]::Black
+                    $paramsInner.Controls.Add($colorSwatch)
 
                     $script:CustomColor = [System.Drawing.Color]::Black
                     $swatchRef = $colorSwatch
 
                     $cb.Add_SelectedIndexChanged({
-                        $sel = $cb.SelectedItem.ToString()
+                        $sender = $args[0]
+                        if ($null -eq $sender -or $sender.SelectedIndex -lt 0 -or $null -eq $sender.SelectedItem) { return }
+                        $sel = $sender.SelectedItem.ToString()
+                        if ([string]::IsNullOrEmpty($sel)) { return }
                         $namedMap = @{
                             'Black'     = [System.Drawing.Color]::Black
                             'White'     = [System.Drawing.Color]::White
@@ -794,14 +808,13 @@ function Update-ParamsPanel {
                         }
                         if ($sel -eq 'Custom…') {
                             $cd = New-Object System.Windows.Forms.ColorDialog
-                            $cd.Color = $script:CustomColor
+                            $cd.Color    = $script:CustomColor
                             $cd.FullOpen = $true
                             if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-                                $script:CustomColor = $cd.Color
+                                $script:CustomColor  = $cd.Color
                                 $swatchRef.BackColor = $cd.Color
                             } else {
-                                # revert to Black if cancelled
-                                $cb.SelectedIndex = 0
+                                $sender.SelectedIndex = 0
                             }
                             $cd.Dispose()
                         } elseif ($namedMap.ContainsKey($sel)) {
@@ -810,7 +823,7 @@ function Update-ParamsPanel {
                     })
                 }
 
-                $paramsGroup.Controls.Add($cb)
+                $paramsInner.Controls.Add($cb)
                 $controlStore["$MethodKey.$pKey"] = $cb
                 $y += 28
             }
@@ -820,7 +833,7 @@ function Update-ParamsPanel {
                 $lbl.Text     = $pDef.Label + ":"
                 $lbl.AutoSize = $true
                 $lbl.Location = New-Object System.Drawing.Point(10, $y)
-                $paramsGroup.Controls.Add($lbl)
+                $paramsInner.Controls.Add($lbl)
                 $y += 22
 
                 $tb = New-Object System.Windows.Forms.TextBox
@@ -828,7 +841,7 @@ function Update-ParamsPanel {
                 $tb.Location = New-Object System.Drawing.Point(20, $y)
                 $tb.Size     = New-Object System.Drawing.Size(200, 22)
                 $tooltip.SetToolTip($tb, $pDef.Tooltip)
-                $paramsGroup.Controls.Add($tb)
+                $paramsInner.Controls.Add($tb)
                 $controlStore["$MethodKey.$pKey"] = $tb
                 $y += 28
             }
@@ -847,6 +860,11 @@ function Update-ParamsPanel {
             & $sb  # initial state
         }
     }
+
+    # Set inner panel height so the outer panel scrolls correctly
+    $paramsInner.Height = [Math]::Max($y + 10, $paramsScroll.Height)
+    # Reset scroll to top
+    $paramsScroll.AutoScrollPosition = New-Object System.Drawing.Point(0, 0)
 }
 
 # ── Read current GUI param values for a method ────────────────────────────────
