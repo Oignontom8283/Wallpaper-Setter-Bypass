@@ -14,8 +14,24 @@
 )
 
 # ==============================================================================
+#  GLOBAL CONSTANTS
+# ==============================================================================
+
+$AppName = "Wallpaper Setter Bypass (WSB)"
+
+# ==============================================================================
 #  BOOTSTRAP
 # ==============================================================================
+
+# ── Startup banner ────────────────────────────────────────────────────────────
+Write-Host ""
+Write-Host "  $AppName" -ForegroundColor Cyan
+Write-Host "  ──────────────────────────────────────────────────────" -ForegroundColor DarkCyan
+Write-Host "  Free & open-source software — use it, share it, fork it." -ForegroundColor White
+Write-Host "  Source code & documentation:" -ForegroundColor Gray
+Write-Host "  https://github.com/Oignontom8283/Wallpaper-Setter-Bypass" -ForegroundColor Blue
+Write-Host "  ──────────────────────────────────────────────────────" -ForegroundColor DarkCyan
+Write-Host ""
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -467,7 +483,7 @@ function Invoke-SetWallpaper {
 if ($Help) {
     Write-Host @"
 
-Wallpaper Setter — PowerShell
+$AppName
 
 USAGE
   .\wallpaper_setter.ps1 [OPTIONS]
@@ -515,7 +531,7 @@ EXAMPLES
 # ==============================================================================
 
 if (-not [string]::IsNullOrWhiteSpace($Path)) {
-    Write-Log INFO "=== Wallpaper Setter — CLI Mode ==="
+    Write-Log INFO "=== $AppName — CLI Mode ==="
 
     $methodDef = $WallpaperMethods[$Method]
     if (-not $methodDef) {
@@ -609,7 +625,7 @@ $optionsGrpH = $btnY - $optionsGrpY - 10        # fills up to buttons
 
 # ── Form ──────────────────────────────────────────────────────────────────────
 $form = New-Object System.Windows.Forms.Form
-$form.Text            = "Wallpaper Setter"
+$form.Text            = $AppName
 $form.Size            = New-Object System.Drawing.Size($formW, $formH)
 $form.StartPosition   = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
@@ -1166,7 +1182,7 @@ It is very rarely blocked, and only in hardened environments with advanced regis
 "@
 
     $infoForm = New-Object System.Windows.Forms.Form
-    $infoForm.Text            = "Method Reference"
+    $infoForm.Text            = "$AppName — Method Reference"
     $infoForm.Size            = New-Object System.Drawing.Size(560, 520)
     $infoForm.MinimumSize     = New-Object System.Drawing.Size(400, 300)
     $infoForm.StartPosition   = "CenterParent"
