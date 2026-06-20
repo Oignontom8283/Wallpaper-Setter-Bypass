@@ -20,9 +20,8 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-# ── Native interop (shared by all methods) ─────────────────────────────────────
-# Guard: only compile once per session (re-running the script in the same PS
-# session would cause a "type already exists" compiler error otherwise).
+# ── Native interop ─────────────────────────────────────────────────────────────
+# Guard: only compile once per session.
 if (-not ([System.Management.Automation.PSTypeName]'WallpaperNative').Type) {
     Add-Type -Language CSharp -TypeDefinition @'
 using System;
@@ -67,75 +66,40 @@ public interface IDesktopWallpaper {
 [Guid("C2CF3110-460E-4fc1-B9D0-8A1C0C9CC4BD")]
 public class DesktopWallpaperCOM { }
 
-public static class WallpaperNative {
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    public static extern bool SystemParametersInfo(int uAction, int uParam,
-                                                   string lpvParam, int fuWinIni);
-
+// COM-only helpers — used exclusively by the COM method
+public static class WallpaperCOM {
     private static IDesktopWallpaper GetCOM() {
         return (IDesktopWallpaper)new DesktopWallpaperCOM();
     }
 
-    public static void COM_SetAll(string path) {
+    public static void SetAll(string path) {
         IDesktopWallpaper dw = GetCOM();
         dw.SetWallpaper(null, path);
     }
 
-    public static void COM_SetByRect(int left, int top, string path) {
-        IDesktopWallpaper dw = GetCOM();
-        uint n = dw.GetMonitorDevicePathCount();
-        for (uint i = 0; i < n; i++) {
-            string dev = dw.GetMonitorDevicePathAt(i);
-            RECT r;
-            dw.GetMonitorRECT(dev, out r);
-            if (r.Left == left && r.Top == top) {
-                dw.SetWallpaper(dev, path);
-                return;
-            }
-        }
-        if (n > 0) {
-            dw.SetWallpaper(dw.GetMonitorDevicePathAt(0), path);
-        }
-    }
-
-    public static void COM_SetByIndex(uint idx, string path) {
-        IDesktopWallpaper dw = GetCOM();
-        uint n = dw.GetMonitorDevicePathCount();
-        if (idx < n) {
-            dw.SetWallpaper(dw.GetMonitorDevicePathAt(idx), path);
-        }
-    }
-
-    public static uint COM_MonitorCount() {
-        IDesktopWallpaper dw = GetCOM();
-        return dw.GetMonitorDevicePathCount();
-    }
-
-    // Position values: 0=Center, 1=Tile, 2=Stretch, 3=Fit, 4=Fill, 5=Span
-    public static void COM_SetPosition(uint position) {
-        IDesktopWallpaper dw = GetCOM();
-        dw.SetPosition(position);
-    }
-
-    public static void COM_SetAllWithPosition(string path, uint position) {
+    public static void SetAllWithPosition(string path, uint position) {
         IDesktopWallpaper dw = GetCOM();
         dw.SetPosition(position);
         dw.SetWallpaper(null, path);
     }
 
-    public static void COM_SetMonitorWithPosition(string devPath, string path, uint position) {
+    public static void SetMonitorWithPosition(string devPath, string path, uint position) {
         IDesktopWallpaper dw = GetCOM();
         dw.SetPosition(position);
         dw.SetWallpaper(devPath, path);
     }
 
-    // color: 0x00BBGGRR (Windows COLORREF)
-    public static void COM_SetBackgroundColor(uint color) {
+    public static void SetBackgroundColor(uint color) {
         IDesktopWallpaper dw = GetCOM();
         dw.SetBackgroundColor(color);
     }
 
-    public static string COM_GetMonitorDevPath(int left, int top) {
+    public static uint GetBackgroundColor() {
+        IDesktopWallpaper dw = GetCOM();
+        return dw.GetBackgroundColor();
+    }
+
+    public static string GetMonitorDevPath(int left, int top) {
         IDesktopWallpaper dw = GetCOM();
         uint n = dw.GetMonitorDevicePathCount();
         for (uint i = 0; i < n; i++) {
@@ -146,6 +110,31 @@ public static class WallpaperNative {
         }
         if (n > 0) { return dw.GetMonitorDevicePathAt(0); }
         return null;
+    }
+
+    public static uint GetMonitorCount() {
+        IDesktopWallpaper dw = GetCOM();
+        return dw.GetMonitorDevicePathCount();
+    }
+}
+
+// SPI-only helper — used exclusively by the SPI method
+public static class WallpaperSPI {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool SystemParametersInfo(int uAction, int uParam,
+                                                   string lpvParam, int fuWinIni);
+    public static bool Refresh(string path) {
+        return SystemParametersInfo(20, 0, path, 3);
+    }
+}
+
+// Registry-only helper — used exclusively by the Registry method
+public static class WallpaperRegistry {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool SystemParametersInfo(int uAction, int uParam,
+                                                   string lpvParam, int fuWinIni);
+    public static bool Refresh(string path) {
+        return SystemParametersInfo(20, 0, path, 3);
     }
 }
 '@
@@ -177,7 +166,6 @@ function Get-MonitorList {
     $screens = [System.Windows.Forms.Screen]::AllScreens
     $result  = @()
 
-    # Try to enrich with WMI model names
     $nameMap = @{}
     try {
         foreach ($wm in (Get-WmiObject -Namespace root\wmi -Class WmiMonitorID -EA Stop | Where-Object Active)) {
@@ -198,15 +186,28 @@ function Get-MonitorList {
     return ,$result
 }
 
+# Helper: read current desktop background color via COM
+# Returns System.Drawing.Color; falls back to Black if COM unavailable
+function Get-DesktopBgColor {
+    try {
+        $colorRef = [WallpaperCOM]::GetBackgroundColor()   # 0x00BBGGRR
+        $b = ($colorRef -shr 16) -band 0xFF
+        $g = ($colorRef -shr  8) -band 0xFF
+        $r =  $colorRef          -band 0xFF
+        return [System.Drawing.Color]::FromArgb($r, $g, $b)
+    } catch {
+        return [System.Drawing.Color]::Black
+    }
+}
+
 # ==============================================================================
-#  METHOD REGISTRY  — add new methods HERE only
+#  METHOD REGISTRY
 #
-#  Each entry must expose:
-#    Name        [string]   Display name shown in GUI radio-buttons
-#    Description [string]   Short tooltip description
-#    Apply       [scriptblock]  { param($Path, $Params) ... return $true/$false }
-#    Params      [hashtable] param descriptors consumed by GUI/CLI
-#                  Each param: @{ Label; Type; Default; Choices (opt); CLIName }
+#  STRICT SEPARATION: each method's Apply block uses ONLY its own static class:
+#    COM      → [WallpaperCOM]
+#    SPI      → [WallpaperSPI]
+#    Registry → [WallpaperRegistry]
+#  No method calls helpers belonging to another method.
 # ==============================================================================
 
 $WallpaperMethods = [ordered]@{
@@ -247,11 +248,9 @@ $WallpaperMethods = [ordered]@{
             $position = $Params.Position
             $bgColor  = $Params.BgColor
 
-            # Map position name to COM uint value
             $posMap = @{ Center=0; Tile=1; Stretch=2; Fit=3; Fill=4; Span=5 }
             $posVal = if ($posMap.ContainsKey($position)) { [uint32]$posMap[$position] } else { [uint32]4 }
 
-            # Map color name to COLORREF (0x00BBGGRR)
             $colorMap = @{
                 'Black'     = [uint32]0x00000000
                 'White'     = [uint32]0x00FFFFFF
@@ -262,7 +261,6 @@ $WallpaperMethods = [ordered]@{
                 'Maroon'    = [uint32]0x00000080
             }
             $colorVal = if ($bgColor -like 'Custom:#*') {
-                # Parse #RRGGBB → COLORREF 0x00BBGGRR
                 $hex = $bgColor -replace 'Custom:#',''
                 $r = [Convert]::ToUInt32($hex.Substring(0,2), 16)
                 $g = [Convert]::ToUInt32($hex.Substring(2,2), 16)
@@ -276,16 +274,19 @@ $WallpaperMethods = [ordered]@{
 
             Write-Log INFO "COM method — monitor:$mon position:$position($posVal) bg:$bgColor"
             try {
-                [WallpaperNative]::COM_SetBackgroundColor($colorVal)
+                # COM method uses only [WallpaperCOM]
+                [WallpaperCOM]::SetBackgroundColor($colorVal)
 
                 if ($mon -eq "all" -or $position -eq "Span") {
-                    [WallpaperNative]::COM_SetAllWithPosition($Path, $posVal)
+                    [WallpaperCOM]::SetAllWithPosition($Path, $posVal)
                 } else {
                     $target = $null
                     if ($mon -eq "primary") {
                         $target = [System.Windows.Forms.Screen]::PrimaryScreen
                     } elseif ($mon -eq "current") {
-                        $target = [System.Windows.Forms.Screen]::PrimaryScreen
+                        # "current" = monitor containing the cursor
+                        $pt = [System.Windows.Forms.Cursor]::Position
+                        $target = [System.Windows.Forms.Screen]::FromPoint($pt)
                     } elseif ($mon -match '^\d+$') {
                         $idx = [int]$mon
                         $all = [System.Windows.Forms.Screen]::AllScreens
@@ -297,16 +298,16 @@ $WallpaperMethods = [ordered]@{
                     }
 
                     if ($target) {
-                        $devPath = [WallpaperNative]::COM_GetMonitorDevPath($target.Bounds.Left, $target.Bounds.Top)
+                        $devPath = [WallpaperCOM]::GetMonitorDevPath($target.Bounds.Left, $target.Bounds.Top)
                         if ($devPath) {
-                            [WallpaperNative]::COM_SetMonitorWithPosition($devPath, $Path, $posVal)
+                            [WallpaperCOM]::SetMonitorWithPosition($devPath, $Path, $posVal)
                         } else {
                             Write-Log WARNING "Could not resolve monitor device path, applying to all"
-                            [WallpaperNative]::COM_SetAllWithPosition($Path, $posVal)
+                            [WallpaperCOM]::SetAllWithPosition($Path, $posVal)
                         }
                     } else {
                         Write-Log WARNING "Monitor '$mon' not found — applying to all"
-                        [WallpaperNative]::COM_SetAllWithPosition($Path, $posVal)
+                        [WallpaperCOM]::SetAllWithPosition($Path, $posVal)
                     }
                 }
                 Write-Log SUCCESS "COM method succeeded"
@@ -355,6 +356,8 @@ $WallpaperMethods = [ordered]@{
             Write-Log INFO "SPI method — mode:$mode stretch:$stretch spanned:$spanned"
 
             try {
+                # SPI method: write registry values directly, then refresh via [WallpaperSPI]
+                # Does NOT use WallpaperCOM or WallpaperRegistry
                 $regPath = 'HKCU:\Control Panel\Desktop'
 
                 if ($spanned) {
@@ -372,7 +375,8 @@ $WallpaperMethods = [ordered]@{
                 }
 
                 Set-ItemProperty $regPath Wallpaper $Path
-                [WallpaperNative]::SystemParametersInfo(20, 0, $Path, 3) | Out-Null
+                # Uses only WallpaperSPI for the Win32 call
+                [WallpaperSPI]::Refresh($Path) | Out-Null
                 Write-Log SUCCESS "SPI method succeeded"
                 return $true
             } catch {
@@ -401,6 +405,8 @@ $WallpaperMethods = [ordered]@{
             $mode = $Params.DisplayMode
             Write-Log INFO "Registry method — mode:$mode"
             try {
+                # Registry method: only direct registry writes + [WallpaperRegistry] refresh
+                # Does NOT use WallpaperCOM or WallpaperSPI
                 $regPath = 'HKCU:\Control Panel\Desktop'
                 Set-ItemProperty $regPath Wallpaper $Path -EA Stop
                 if ($mode -eq "tile") {
@@ -410,7 +416,8 @@ $WallpaperMethods = [ordered]@{
                     Set-ItemProperty $regPath WallpaperStyle 6
                     Set-ItemProperty $regPath TileWallpaper  0
                 }
-                [WallpaperNative]::SystemParametersInfo(20, 0, $Path, 3) | Out-Null
+                # Uses only WallpaperRegistry for the Win32 call
+                [WallpaperRegistry]::Refresh($Path) | Out-Null
                 Write-Log SUCCESS "Registry method succeeded"
                 return $true
             } catch {
@@ -419,31 +426,10 @@ $WallpaperMethods = [ordered]@{
             }
         }
     }
-
-    # ── TEMPLATE — copy/rename to add a new method ───────────────────────────
-    # NewMethod = @{
-    #     Name        = "NewMethod — Display name"
-    #     Description = "Short description shown in GUI."
-    #     Params      = [ordered]@{
-    #         SomeParam = @{
-    #             Label   = "Param label"
-    #             Type    = "Radio|Check|Combo|Text"
-    #             Default = "defaultValue"
-    #             Choices = @("a","b")   # for Radio/Combo only
-    #             CLIName = "SomeParam"
-    #             Tooltip = "Tooltip text"
-    #         }
-    #     }
-    #     Apply = {
-    #         param([string]$Path, [hashtable]$Params)
-    #         # ... your logic ...
-    #         return $true  # or $false
-    #     }
-    # }
 }
 
 # ==============================================================================
-#  APPLY DISPATCHER  (validates image, dispatches to chosen method)
+#  APPLY DISPATCHER
 # ==============================================================================
 
 function Invoke-SetWallpaper {
@@ -454,7 +440,6 @@ function Invoke-SetWallpaper {
         [bool]$IsGUI = $false
     )
 
-    # Validate path
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
         Write-Log ERROR "Invalid or missing image path: '$Path'"
         return $false
@@ -532,7 +517,6 @@ EXAMPLES
 if (-not [string]::IsNullOrWhiteSpace($Path)) {
     Write-Log INFO "=== Wallpaper Setter — CLI Mode ==="
 
-    # Build param hashtable from CLI switches based on the chosen method
     $methodDef = $WallpaperMethods[$Method]
     if (-not $methodDef) {
         Write-Log ERROR "Unknown method '$Method'. Valid: $($WallpaperMethods.Keys -join ', ')"
@@ -545,7 +529,6 @@ if (-not [string]::IsNullOrWhiteSpace($Path)) {
         $cliName = $pDef.CLIName
         $val   = $null
 
-        # Check if the corresponding script parameter was supplied
         switch ($cliName) {
             "Monitor"     { $val = $Monitor }
             "Position"    { $val = $Position }
@@ -587,33 +570,42 @@ if (-not [string]::IsNullOrWhiteSpace($Path)) {
 $monitors = Get-MonitorList
 
 # ── Dimensions ────────────────────────────────────────────────────────────────
-# Layout: left panel | gap | square preview | marginX
-$leftW    = 410          # left panel width
-$gap      = 10           # gap between left panel and preview
-$marginX  = 12           # outer margin used on ALL sides
-$marginY  = 12
+# Strategy: fixed generous form height; right side has empty space below preview
+# which is fine. Left panel options group fills all available height to buttons.
+$marginX  = 14
+$marginY  = 14
+$gap      = 14
 
-# Preview X starts after: marginX + leftW + gap
-$previewX = $marginX + $leftW + $gap   # = 432
+# Fixed form client area
+$formClientW = 880
+$formClientH = 460          # generous height — white space below preview is OK
 
-# Form client width: previewX + previewS + marginX  →  previewS = formClientW - previewX - marginX
-# We target a square preview of 320px, then derive formW from that
-$previewS = 320          # square preview
-$previewY = $marginY     # = 12
+$formW = $formClientW + 16  # FixedDialog border ~8px each side
+$formH = $formClientH + 39  # title bar ~30px + border ~9px
 
-# Total form Size (includes title bar ~30 + border ~8 ≈ 40px chrome)
-$formClientW = $previewX + $previewS + $marginX   # = 432+320+12 = 764
-$formW       = $formClientW + 16                   # WinForms FixedDialog adds ~8px each side
+# Left panel
+$leftW    = 400
+$previewX = $marginX + $leftW + $gap   # = 428
 
-$btnY        = $marginY + $previewS + $gap         # = 12+320+10 = 342
-$formH       = $btnY + 30 + $marginY + 40          # = 342+30+12+40 = 424
+# 16:9 preview — width fills remaining right space
+$previewW = $formClientW - $previewX - $marginX   # = 438
+$previewH = [int]($previewW * 9 / 16)             # = 246
+$previewY = $marginY
+
+$previewLabelY = $previewY + $previewH + 4
+
+# Color swatch row below preview label
+$colorRowY = $previewLabelY + 20
+
+# Action buttons anchored to bottom of left panel
+$btnY = $formClientH - $marginY - 30    # = 516
 
 # Left panel sub-layout
 $fileRowY    = 14
 $methodGrpY  = 46
 $methodGrpH  = 60
 $optionsGrpY = $methodGrpY + $methodGrpH + 8   # = 114
-$optionsGrpH = $btnY - $optionsGrpY - 8         # fills space above buttons = 362-114-8 = 240
+$optionsGrpH = $btnY - $optionsGrpY - 10        # fills up to buttons
 
 # ── Form ──────────────────────────────────────────────────────────────────────
 $form = New-Object System.Windows.Forms.Form
@@ -671,43 +663,57 @@ $paramsGroup.Text     = "Options"
 $paramsGroup.Location = New-Object System.Drawing.Point($marginX, $optionsGrpY)
 $paramsGroup.Size     = New-Object System.Drawing.Size($($leftW - $marginX), $optionsGrpH)
 
-# Outer scrollable panel — fixed size, clips overflow
 $paramsScroll = New-Object System.Windows.Forms.Panel
 $paramsScroll.Location   = New-Object System.Drawing.Point(4, 18)
 $paramsScroll.Size       = New-Object System.Drawing.Size($($leftW - $marginX - 8), $($optionsGrpH - 22))
 $paramsScroll.AutoScroll = $true
 $paramsGroup.Controls.Add($paramsScroll)
 
-# Inner panel — grows to fit content, triggers scroll in outer panel
 $paramsInner = New-Object System.Windows.Forms.Panel
 $paramsInner.Location = New-Object System.Drawing.Point(0, 0)
 $paramsInner.Width    = $paramsScroll.Width - 20
 $paramsInner.Height   = 10
 $paramsScroll.Controls.Add($paramsInner)
 
-# ── Preview box ───────────────────────────────────────────────────────────────
+# ── Preview box (16:9) ────────────────────────────────────────────────────────
 $previewBox = New-Object System.Windows.Forms.PictureBox
-$previewBox.Location  = New-Object System.Drawing.Point($previewX, $previewY)
-$previewBox.Size      = New-Object System.Drawing.Size($previewS, $previewS)
+$previewBox.Location    = New-Object System.Drawing.Point($previewX, $previewY)
+$previewBox.Size        = New-Object System.Drawing.Size($previewW, $previewH)
 $previewBox.BorderStyle = 'FixedSingle'
-$previewBox.SizeMode  = 'Zoom'
-$previewBox.BackColor = [System.Drawing.Color]::FromArgb(220,220,220)
+$previewBox.SizeMode    = 'Zoom'
+$previewBox.BackColor   = [System.Drawing.Color]::FromArgb(220,220,220)
 $tooltip.SetToolTip($previewBox, "Preview of selected image")
 
-# ── Background color picker (right side, aligned with buttons) ────────────────
-# Swatch shows current color, button opens ColorDialog and applies immediately
+# Small label below preview to clarify it's a 16:9 ratio preview
+$previewLabel = New-Object System.Windows.Forms.Label
+$previewLabel.Text      = "Preview (16:9)"
+$previewLabel.AutoSize  = $true
+$previewLabel.ForeColor = [System.Drawing.Color]::Gray
+$previewLabel.Location  = New-Object System.Drawing.Point($previewX, $previewLabelY)
+
+# ── Background color swatch + label (right side) ─────────────────────────────
+# The swatch is display-only (no Hand cursor, no click handler)
+# The "Change…" button opens the dialog
+
+# Read actual current desktop BG color from Windows
+$currentBgColor = Get-DesktopBgColor
+
+$bgColorLabel = New-Object System.Windows.Forms.Label
+$bgColorLabel.Text     = "Background color:"
+$bgColorLabel.AutoSize = $true
+$bgColorLabel.Location = New-Object System.Drawing.Point($previewX, $($colorRowY + 7))
+
 $bgColorSwatch = New-Object System.Windows.Forms.Panel
-$bgColorSwatch.Location    = New-Object System.Drawing.Point($previewX, $btnY)
-$bgColorSwatch.Size        = New-Object System.Drawing.Size(30, 30)
+$bgColorSwatch.Location    = New-Object System.Drawing.Point($($previewX + 120), $colorRowY)
+$bgColorSwatch.Size        = New-Object System.Drawing.Size(28, 28)
 $bgColorSwatch.BorderStyle = 'FixedSingle'
-$bgColorSwatch.BackColor   = [System.Drawing.Color]::Black
-$bgColorSwatch.Cursor      = [System.Windows.Forms.Cursors]::Hand
-$tooltip.SetToolTip($bgColorSwatch, "Current desktop background color")
+$bgColorSwatch.BackColor   = $currentBgColor
+# No Cursor = Hand, no Click handler — purely informational display
 
 $bgColorBtn = New-Object System.Windows.Forms.Button
-$bgColorBtn.Text     = "Background color…"
-$bgColorBtn.Location = New-Object System.Drawing.Point($($previewX + 38), $btnY)
-$bgColorBtn.Size     = New-Object System.Drawing.Size(140, 30)
+$bgColorBtn.Text     = "Change…"
+$bgColorBtn.Location = New-Object System.Drawing.Point($($previewX + 156), $colorRowY)
+$bgColorBtn.Size     = New-Object System.Drawing.Size(80, 28)
 $tooltip.SetToolTip($bgColorBtn, "Set the desktop background color (visible when wallpaper doesn't fill the screen)")
 
 # ── Action buttons ────────────────────────────────────────────────────────────
@@ -723,8 +729,25 @@ $exitBtn.Location = New-Object System.Drawing.Point($($marginX + 110), $btnY)
 $exitBtn.Size     = New-Object System.Drawing.Size(100, 30)
 $tooltip.SetToolTip($exitBtn, "Close without applying")
 
-# ── Control state store (key = methodKey.paramKey) ───────────────────────────
-$controlStore = @{}   # stores live WinForms controls keyed by "METHOD.PARAM"
+# ── Control state store ───────────────────────────────────────────────────────
+$controlStore = @{}
+
+# Script-scope color state — reset on each panel rebuild
+$script:CustomColor    = [System.Drawing.Color]::Black
+$script:ColorSwatchCtl = $null
+$script:EnabledWhenJobs = @()
+$script:NamedColorMap    = @{}
+$script:BgColorChanging = $false
+
+# ── Helper: sync both BgColor controls from a System.Drawing.Color ────────────
+# Syncs the swatch in the Options panel AND the main swatch on the right
+function Sync-BgColorDisplay {
+    param([System.Drawing.Color]$Color)
+    $bgColorSwatch.BackColor = $Color
+    if ($script:ColorSwatchCtl -and -not $script:ColorSwatchCtl.IsDisposed) {
+        $script:ColorSwatchCtl.BackColor = $Color
+    }
+}
 
 # ── Build params panel for a given method ─────────────────────────────────────
 function Update-ParamsPanel {
@@ -732,6 +755,11 @@ function Update-ParamsPanel {
 
     $paramsInner.Controls.Clear()
     $controlStore.Clear()
+    $script:EnabledWhenJobs = @()   # reset on every panel rebuild
+    $script:CustomColor     = [System.Drawing.Color]::Black
+    $script:ColorSwatchCtl  = $null
+    $script:NamedColorMap    = @{}
+    $script:BgColorChanging = $false
 
     $methodDef = $WallpaperMethods[$MethodKey]
     if (-not $methodDef) { return }
@@ -777,7 +805,6 @@ function Update-ParamsPanel {
                 $paramsInner.Controls.Add($cb)
                 $controlStore["$MethodKey.$pKey"] = $cb
 
-                # Wire EnabledWhen dependency
                 if ($pDef.EnabledWhen) {
                     $depParam = ($pDef.EnabledWhen.GetEnumerator() | Select-Object -First 1)
                     $depKey   = $depParam.Key
@@ -790,7 +817,12 @@ function Update-ParamsPanel {
                             $targetCB.Enabled = $radioMap[$depVal].Checked
                         }
                     }
-                    $script:EnabledWhenJobs += @{ Action=$updateEnabled; RadioKey="$MethodKey.$depKey"; DepVal=$depVal; Target=$targetCB }
+                    $script:EnabledWhenJobs += @{
+                        Action   = $updateEnabled
+                        RadioKey = "$MethodKey.$depKey"
+                        DepVal   = $depVal
+                        Target   = $targetCB
+                    }
                 }
                 $y += 26
             }
@@ -820,45 +852,56 @@ function Update-ParamsPanel {
                 $cb.SelectedIndex = if ($idx -ge 0) { $idx } else { 0 }
 
                 if ($pKey -eq "BgColor") {
+                    # Inline swatch — display-only, no cursor, no click
                     $colorSwatch = New-Object System.Windows.Forms.Panel
                     $colorSwatch.Location    = New-Object System.Drawing.Point(228, $($y + 2))
                     $colorSwatch.Size        = New-Object System.Drawing.Size(18, 18)
                     $colorSwatch.BorderStyle = 'FixedSingle'
-                    $colorSwatch.BackColor   = [System.Drawing.Color]::Black
+                    # Initialise swatch to the actual current Windows BG color
+                    $colorSwatch.BackColor   = Get-DesktopBgColor
                     $paramsInner.Controls.Add($colorSwatch)
 
-                    $script:CustomColor    = [System.Drawing.Color]::Black
-                    $script:ColorSwatchCtl = $colorSwatch   # script-scope ref, survives panel rebuild
+                    $script:CustomColor    = Get-DesktopBgColor
+                    $script:ColorSwatchCtl = $colorSwatch
 
+                    # Named-color lookup in script scope so event handler closures can reach it
+                    $script:NamedColorMap = @{
+                        'Black'     = [System.Drawing.Color]::Black
+                        'White'     = [System.Drawing.Color]::White
+                        'Gray'      = [System.Drawing.Color]::Gray
+                        'Dark Gray' = [System.Drawing.Color]::FromArgb(64,64,64)
+                        'Navy'      = [System.Drawing.Color]::Navy
+                        'Dark Green'= [System.Drawing.Color]::DarkGreen
+                        'Maroon'    = [System.Drawing.Color]::Maroon
+                    }
+
+                    # When the combo changes → update BOTH swatches (options panel + main)
+                    # Guard flag prevents re-entrancy: setting SelectedIndex inside the handler
+                    # would retrigger SelectedIndexChanged and reopen the ColorDialog.
                     $cb.Add_SelectedIndexChanged({
+                        if ($script:BgColorChanging) { return }
                         $sender = $args[0]
-                        if ($null -eq $sender -or $sender.SelectedIndex -lt 0 -or $null -eq $sender.SelectedItem) { return }
+                        if ($null -eq $sender -or $sender.SelectedIndex -lt 0 -or
+                            $null -eq $sender.SelectedItem) { return }
                         $sel = $sender.SelectedItem.ToString()
                         if ([string]::IsNullOrEmpty($sel)) { return }
-                        $swatch = $script:ColorSwatchCtl
-                        if ($null -eq $swatch -or $swatch.IsDisposed) { return }
-                        $namedMap = @{
-                            'Black'     = [System.Drawing.Color]::Black
-                            'White'     = [System.Drawing.Color]::White
-                            'Gray'      = [System.Drawing.Color]::Gray
-                            'Dark Gray' = [System.Drawing.Color]::FromArgb(64,64,64)
-                            'Navy'      = [System.Drawing.Color]::Navy
-                            'Dark Green'= [System.Drawing.Color]::DarkGreen
-                            'Maroon'    = [System.Drawing.Color]::Maroon
-                        }
+
                         if ($sel -eq 'Custom…') {
+                            $script:BgColorChanging = $true
                             $cd = New-Object System.Windows.Forms.ColorDialog
                             $cd.Color    = $script:CustomColor
                             $cd.FullOpen = $true
                             if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                 $script:CustomColor = $cd.Color
-                                $swatch.BackColor   = $cd.Color
+                                Sync-BgColorDisplay $cd.Color
                             } else {
+                                # Revert to first named item without retriggering
                                 $sender.SelectedIndex = 0
                             }
                             $cd.Dispose()
-                        } elseif ($namedMap.ContainsKey($sel)) {
-                            $swatch.BackColor = $namedMap[$sel]
+                            $script:BgColorChanging = $false
+                        } elseif ($script:NamedColorMap -and $script:NamedColorMap.ContainsKey($sel)) {
+                            Sync-BgColorDisplay $script:NamedColorMap[$sel]
                         }
                     })
                 }
@@ -888,7 +931,7 @@ function Update-ParamsPanel {
         }
     }
 
-    # Deferred wire-up for EnabledWhen
+    # Deferred wire-up for EnabledWhen (all controls are in the store now)
     foreach ($job in $script:EnabledWhenJobs) {
         $radioMap = $controlStore[$job.RadioKey]
         if ($radioMap) {
@@ -897,17 +940,15 @@ function Update-ParamsPanel {
                 $capturedSb = $sb
                 $rb.Add_CheckedChanged($capturedSb)
             }
-            & $sb  # initial state
+            & $sb   # set initial enabled state
         }
     }
 
-    # Set inner panel height so the outer panel scrolls correctly
     $paramsInner.Height = [Math]::Max($y + 10, $paramsScroll.Height)
-    # Reset scroll to top
     $paramsScroll.AutoScrollPosition = New-Object System.Drawing.Point(0, 0)
 }
 
-# ── Read current GUI param values for a method ────────────────────────────────
+# ── Read current GUI param values ─────────────────────────────────────────────
 function Get-GUIParams {
     param([string]$MethodKey)
 
@@ -937,28 +978,25 @@ function Get-GUIParams {
                 $ctl = $controlStore[$ctlKey]
                 if ($ctl -and $ctl.SelectedItem) {
                     $val = $ctl.SelectedItem.ToString()
-                    # Resolve named monitor to DeviceName
+
                     if ($pKey -eq "Monitor") {
                         $lower = $val.ToLower()
-                        if ($lower -notin @("primary","all","current")) {
+                        if ($lower -eq "current") {
+                            # Resolve to the monitor currently under the mouse
+                            $pt  = [System.Windows.Forms.Cursor]::Position
+                            $val = [System.Windows.Forms.Screen]::FromPoint($pt).DeviceName
+                        } elseif ($lower -notin @("primary","all")) {
                             if ($lower -match '^\d+$') {
                                 # numeric index — keep as-is
                             } else {
-                                # named monitor from list
+                                # named monitor from list → resolve to DeviceName
                                 foreach ($m in $monitors) {
                                     if ($m.Name -eq $val) { $val = $m.Screen.DeviceName; break }
-                                }
-                                # "current" = form center screen
-                                if ($val -eq "current") {
-                                    $cx = $form.Location.X + $form.Width  / 2
-                                    $cy = $form.Location.Y + $form.Height / 2
-                                    $val = [System.Windows.Forms.Screen]::FromPoint(
-                                        [System.Drawing.Point]::new($cx,$cy)).DeviceName
                                 }
                             }
                         }
                     }
-                    # Resolve "Custom…" to the hex color string for the Apply scriptblock
+
                     if ($pKey -eq "BgColor" -and $val -eq 'Custom…') {
                         $c = $script:CustomColor
                         $val = "Custom:#$($c.R.ToString('X2'))$($c.G.ToString('X2'))$($c.B.ToString('X2'))"
@@ -983,7 +1021,6 @@ foreach ($mKey in $methodRadios.Keys) {
     $rb.Add_CheckedChanged({
         $sender = $args[0]
         if ($sender.Checked) {
-            $script:EnabledWhenJobs = @()
             Update-ParamsPanel -MethodKey $sender.Tag
         }
     })
@@ -1009,26 +1046,42 @@ $browseBtn.Add_Click({
     }
 })
 
-# ── Background color button ───────────────────────────────────────────────────
+# ── Background color "Change…" button ────────────────────────────────────────
+# Opens a color dialog and updates BOTH the main swatch AND the Options panel swatch
 $bgColorBtn.Add_Click({
     $cd = New-Object System.Windows.Forms.ColorDialog
     $cd.Color    = $bgColorSwatch.BackColor
     $cd.FullOpen = $true
     if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        $bgColorSwatch.BackColor = $cd.Color
-        # Convert System.Drawing.Color → COLORREF (0x00BBGGRR)
-        $r = $cd.Color.R; $g = $cd.Color.G; $b = $cd.Color.B
+        $pickedColor = $cd.Color
+        $script:CustomColor = $pickedColor
+        Sync-BgColorDisplay $pickedColor
+
+        # Also update the Options-panel combo to "Custom…" if BgColor param exists
+        # Use the guard flag so setting SelectedIndex doesn't reopen the ColorDialog
+        $activeMethod = ($methodRadios.GetEnumerator() |
+                         Where-Object { $_.Value.Checked } |
+                         Select-Object -First 1).Key
+        if ($activeMethod -eq "COM") {
+            $comboCtl = $controlStore["COM.BgColor"]
+            if ($comboCtl) {
+                $customIdx = $comboCtl.Items.IndexOf('Custom…')
+                if ($customIdx -ge 0) {
+                    $script:BgColorChanging = $true
+                    $comboCtl.SelectedIndex = $customIdx
+                    $script:BgColorChanging = $false
+                }
+            }
+        }
+
+        # Apply the color immediately via COM (best-effort)
+        $r = $pickedColor.R; $g = $pickedColor.G; $b = $pickedColor.B
         $colorRef = [uint32](($b -shl 16) -bor ($g -shl 8) -bor $r)
         try {
-            [WallpaperNative]::COM_SetBackgroundColor($colorRef)
+            [WallpaperCOM]::SetBackgroundColor($colorRef)
             Write-Log SUCCESS "Background color applied: R=$r G=$g B=$b"
         } catch {
-            [System.Windows.Forms.MessageBox]::Show(
-                "Failed to apply background color:`n$($_.Exception.Message)",
-                "Error",
-                [System.Windows.Forms.MessageBoxButtons]::OK,
-                [System.Windows.Forms.MessageBoxIcon]::Error
-            ) | Out-Null
+            Write-Log WARNING "Could not apply background color immediately (COM unavailable): $($_.Exception.Message)"
         }
     }
     $cd.Dispose()
@@ -1036,13 +1089,17 @@ $bgColorBtn.Add_Click({
 
 # ── Apply button ──────────────────────────────────────────────────────────────
 $applyBtn.Add_Click({
-    $activeMethod = ($methodRadios.GetEnumerator() | Where-Object { $_.Value.Checked } | Select-Object -First 1).Key
+    $activeMethod = ($methodRadios.GetEnumerator() |
+                     Where-Object { $_.Value.Checked } |
+                     Select-Object -First 1).Key
     if (-not $activeMethod) { return }
 
     $guiParams = Get-GUIParams -MethodKey $activeMethod
     $ok = Invoke-SetWallpaper -Path $pathBox.Text -MethodKey $activeMethod -Params $guiParams -IsGUI $true
 
     if ($ok) {
+        # Refresh swatch to reflect the actual applied BG color
+        $bgColorSwatch.BackColor = Get-DesktopBgColor
         [System.Windows.Forms.MessageBox]::Show(
             "Wallpaper applied successfully!",
             "Success",
@@ -1060,18 +1117,23 @@ $applyBtn.Add_Click({
 })
 
 $exitBtn.Add_Click({ $form.Close() })
-$form.Add_FormClosed({ $dialog.Dispose() })
+
+# Dispose image on close to avoid resource leak
+$form.Add_FormClosed({
+    $dialog.Dispose()
+    if ($previewBox.Image) { $previewBox.Image.Dispose(); $previewBox.Image = $null }
+})
 
 # ── Assemble form ─────────────────────────────────────────────────────────────
 $form.Controls.AddRange(@(
     $fileLabel, $pathBox, $browseBtn,
     $methodGroup, $paramsGroup,
-    $previewBox, $bgColorSwatch, $bgColorBtn,
+    $previewBox, $previewLabel,
+    $bgColorLabel, $bgColorSwatch, $bgColorBtn,
     $applyBtn, $exitBtn
 ))
 
 # Initial panel render
-$script:EnabledWhenJobs = @()
 Update-ParamsPanel -MethodKey "COM"
 
 $form.ShowDialog() | Out-Null
