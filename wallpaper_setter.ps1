@@ -729,6 +729,13 @@ $exitBtn.Location = New-Object System.Drawing.Point($($marginX + 110), $btnY)
 $exitBtn.Size     = New-Object System.Drawing.Size(100, 30)
 $tooltip.SetToolTip($exitBtn, "Close without applying")
 
+$infoBtn = New-Object System.Windows.Forms.Button
+$infoBtn.Text     = "i"
+$infoBtn.Font     = New-Object System.Drawing.Font("Georgia", 11, [System.Drawing.FontStyle]::Italic)
+$infoBtn.Location = New-Object System.Drawing.Point($($marginX + 220), $btnY)
+$infoBtn.Size     = New-Object System.Drawing.Size(30, 30)
+$tooltip.SetToolTip($infoBtn, "About the available methods")
+
 # ── Control state store ───────────────────────────────────────────────────────
 $controlStore = @{}
 
@@ -1118,6 +1125,79 @@ $applyBtn.Add_Click({
 
 $exitBtn.Add_Click({ $form.Close() })
 
+$infoBtn.Add_Click({
+    $infoText = @"
+~~ METHOD REFERENCE ~~
+
+
+
+COM :
+
+COM (Component Object Model) is the modern, native Windows Shell interface for managing the desktop wallpaper.
+It is the most feature-rich method available: Per-monitor wallpaper support (set a different image on each screen),
+All position styles: Center, Tile, Stretch, Fit, Fill, Span, Desktop background color control, and Full Windows 10/11 compatibility.
+
+IMPORTANT: COM is the most commonly blocked method in managed environments. Corporate IT policies, school networks,
+and kiosk configurations frequently restrict the Shell COM interface via Group Policy or AppLocker rules. If this method fails, try SPI or Registry instead.
+
+
+
+SPI : 
+
+SPI is the classic Win32 API call that has existed since Windows 95. It sets the wallpaper globally across all monitors using a single system call:
+Simple tile or fullscreen display modes, Optional stretch-to-fill, and Optional span across all monitors (treated as one wide canvas).
+Multi-monitor support is limited: SPI cannot address individual screens and always applies the same image to every monitor.
+The wallpaper style is written to the registry before the SPI call so that the setting persists after reboot.
+
+SPI is deprecated in the sense that Microsoft no longer extends it, but it remains functional on all current Windows versions.
+It is rarely blocked by Group Policy in professional or educational environments, making it your best fallback when COM is unavailable. If COM fails, try this method first.
+
+
+
+REGISTRY : 
+
+This method bypasses all API layers and writes the wallpaper path and style values directly into the Windows registry key:
+HKCU\Control Panel\Desktop. A desktop-refresh system call is then issued to apply the change immediately without requiring a logoff or reboot.
+
+Minimal feature set: fullscreen or tile only. No per-monitor support. No position styles beyond basic fullscreen / tile.
+
+This approach is the most archaic of the three. Use it only as a last resort when both COM and SPI are unavailable.
+It is very rarely blocked, and only in hardened environments with advanced registry protection policies (e.g. write restrictions on HKCU enforced via Group Policy or third-party endpoint security software).
+"@
+
+    $infoForm = New-Object System.Windows.Forms.Form
+    $infoForm.Text            = "Method Reference"
+    $infoForm.Size            = New-Object System.Drawing.Size(560, 520)
+    $infoForm.MinimumSize     = New-Object System.Drawing.Size(400, 300)
+    $infoForm.StartPosition   = "CenterParent"
+    $infoForm.FormBorderStyle = "Sizable"
+    $infoForm.MaximizeBox     = $true
+    $infoForm.MinimizeBox     = $false
+
+    $infoMargin = 10
+    $tbW = $infoForm.ClientSize.Width  - $infoMargin * 2
+    $tbH = $infoForm.ClientSize.Height - $infoMargin * 2
+
+    $tb = New-Object System.Windows.Forms.RichTextBox
+    $tb.Text          = $infoText
+    $tb.ReadOnly      = $true
+    $tb.BorderStyle   = "None"
+    $tb.ScrollBars    = "Vertical"
+    $tb.WordWrap      = $true
+    $tb.BackColor     = $infoForm.BackColor
+    $tb.Font          = New-Object System.Drawing.Font("Consolas", 9)
+    $tb.Location      = New-Object System.Drawing.Point($infoMargin, $infoMargin)
+    $tb.Size          = New-Object System.Drawing.Size($tbW, $tbH)
+    $tb.Anchor        = ([System.Windows.Forms.AnchorStyles]::Top  -bor `
+                         [System.Windows.Forms.AnchorStyles]::Bottom -bor `
+                         [System.Windows.Forms.AnchorStyles]::Left  -bor `
+                         [System.Windows.Forms.AnchorStyles]::Right)
+
+    $infoForm.Controls.Add($tb)
+    $infoForm.ShowDialog($form) | Out-Null
+    $infoForm.Dispose()
+})
+
 # Dispose image on close to avoid resource leak
 $form.Add_FormClosed({
     $dialog.Dispose()
@@ -1130,7 +1210,7 @@ $form.Controls.AddRange(@(
     $methodGroup, $paramsGroup,
     $previewBox, $previewLabel,
     $bgColorLabel, $bgColorSwatch, $bgColorBtn,
-    $applyBtn, $exitBtn
+    $applyBtn, $exitBtn, $infoBtn
 ))
 
 # Initial panel render
