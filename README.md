@@ -2,10 +2,9 @@
 
 <img src="https://img.shields.io/badge/Target-Windows-green?style=flat" alt="Target Hardware"/> &nbsp; <img src="https://img.shields.io/github/v/release/Oignontom8283/Wallpaper-Setter-Bypass?include_prereleases&style=flat&logo=github" alt="Version"/>
 
-
 [Français](README_FR.md) | **English**
 
-A PowerShell application that bypasses the native Windows wallpaper settings to apply wallpapers directly with advanced scaling and styling options. Works without administrator privileges.
+A PowerShell application that bypasses the native Windows wallpaper settings to apply wallpapers directly with advanced scaling, styling, and background color options. Works without administrator privileges.
 
 ![Illustration of WSB GUI](./assets/gui.png)
 
@@ -14,15 +13,16 @@ A PowerShell application that bypasses the native Windows wallpaper settings to 
 
 ## Features
 
-- [x] **Dual Method Support**: Choose between native Windows API or registry manipulation methods
+- [x] **Triple Method Support**: Choose between the COM interface (IDesktopWallpaper), the classic Win32 API (SPI), or direct registry manipulation
 - [x] **GUI Mode**: Interactive graphical interface for easy wallpaper selection
 - [x] **CLI Mode**: Command-line interface for automation and scripting
 - [x] **Image Validation**: Automatic validation to detect corrupted or invalid image files
-- [x] **Display Modes**: Choose between Tile (repeat) or Fullscreen display
-- [x] **Stretch Options**: In fullscreen mode, choose between centered or stretched display
-- [x] **Multi-Monitor Support**: Apply wallpapers to specific monitors or span a single image across all screens
-- [x] **Image Preview**: Live preview of selected images before applying
-- [x] **No Admin Required**: Works without administrator privileges using registry-based methods
+- [x] **Display Modes**: Center, Tile, Stretch, Fit, Fill, Span (depending on the chosen method)
+- [x] **Background Color**: Select and live-preview the desktop background color shown behind the wallpaper (COM method only)
+- [x] **Multi-Monitor Support**: Apply wallpapers to a specific monitor, all monitors, or span a single image across all screens (COM method)
+- [x] **Image Preview**: Live 16:9 preview of the selected image before applying
+- [x] **No Admin Required**: Works without administrator privileges
+- [x] **Method Reference**: Built-in info button explaining each method in detail and its use cases
 
 ## Supported Image Formats
 
@@ -35,7 +35,7 @@ A PowerShell application that bypasses the native Windows wallpaper settings to 
 ## Requirements
 
 - Windows 7 or later
-- PowerShell 3.0 or later
+- PowerShell 5.1 or later
 - No special privileges required
 
 ## Usage
@@ -56,145 +56,166 @@ Or run the PowerShell script directly:
 
 This opens a window where you can:
 
-1. Click **`Browse...`** to select an image file
-2. View the image preview on the right side
-3. Select the target monitor:
-   - **Current**: The monitor where the application window is located
-   - **Primary**: The main system monitor
-   - **DISPLAY#**: Specific monitor by its hardware name
-   - **All**: Apply the same image to all monitors
-   - **Spanned**: Span a single image across all connected monitors
-4. Select the display mode:
-   - **Tile (repeat)**: Repeats the image across the entire screen
-   - **Full screen**: Displays the image in full screen
-5. In fullscreen mode, check optional options:
-   - **Stretch to fill**: Stretches the image to fill the entire screen (otherwise it will be fitted while keeping aspect ratio)
-6. Check other options:
-   - **Use Registry method**: Use registry manipulation instead of native Windows API (try this if the default method fails)
-7. Click **`Apply`** to set the wallpaper
-8. Click **`Exit`** to close without applying changes
+1. Click **`Browse…`** to select an image file
+2. View the 16:9 image preview on the right side
+3. Choose the **method** to use:
+   - **COM** *(recommended)*: Modern method via the Windows Shell interface, with per-monitor support, advanced position styles, and background color control
+   - **SPI**: Classic Win32 API, applies globally to all monitors, rarely blocked in managed environments
+   - **Registry**: Direct registry write, last resort if both COM and SPI fail
+4. Configure the **options** for the chosen method (see details below)
+5. *(COM method only)* Change the **background color** via the `Change…` button — visible behind the wallpaper when it doesn't fill the entire screen
+6. Click **`Apply`** to set the wallpaper
+7. Click **`Exit`** to close without applying
+8. Click **`i`** to open the built-in method reference
+
+#### Options per method
+
+**COM** — `IDesktopWallpaper` (default)
+
+| Option | Values | Description |
+|---|---|---|
+| Monitor | `current`, `primary`, `all`, numeric index | Target monitor. `current` = monitor under the cursor |
+| Position | `Center`, `Tile`, `Stretch`, `Fit`, `Fill`, `Span` | Display style |
+| Background color | `Black`, `White`, `Gray`, `Dark Gray`, `Navy`, `Dark Green`, `Maroon`, `Custom…` | Color shown behind the image |
+
+**SPI** — `SystemParametersInfo`
+
+| Option | Values | Description |
+|---|---|---|
+| Display mode | `fullscreen`, `tile` | Global display style |
+| Stretch to fill | checkbox | Stretch the image to fill the screen (fullscreen mode only) |
+| Span across all monitors | checkbox | Treat all monitors as a single wide canvas |
+
+**Registry** — Direct write
+
+| Option | Values | Description |
+|---|---|---|
+| Display mode | `fullscreen`, `tile` | Display style (fullscreen = WallpaperStyle 6, tile = WallpaperStyle 1) |
 
 ### CLI Mode (Command Line)
-
-Use the following syntax for command-line usage:
 
 ```powershell
 .\wallpaper_setter.ps1 -Path "C:\path\to\image.jpg" [Options]
 ```
 
-#### Options:
-- `-Path <path>` (required): Full path to the image file
-- `-DisplayMode <mode>`: Display mode: 'tile' (repeat) or 'fullscreen' (default)
-- `-Monitor <monitor>`: Target monitor: 'primary', 'all', or hardware index (e.g., '0', '1'). Defaults to 'primary'.
-- `-Stretch`: Stretch image to fill screen (fullscreen mode only)
-- `-Spanned`: Apply as single spanned wallpaper across all monitors
-- `-UseRegistryMethod`: Use registry manipulation method instead of native API
-- `-Help`: Display help message
+#### Common options
 
-<br>
-Note: The Registry method (which disables the monitor selection option) applies the wallpaper globally to all screens using legacy Windows scaling routines.
-<br>
+| Option | Description |
+|---|---|
+| `-Path <path>` | Full path to the image file *(required for CLI mode)* |
+| `-Method <method>` | Method: `COM` (default), `SPI`, `Registry` |
+| `-Help` | Display help message |
 
-#### Examples:
+#### COM options
 
-Apply on primary monitor:
+| Option | Description |
+|---|---|
+| `-Monitor <value>` | `primary` (default), `all`, `current`, or numeric index (`0`, `1`, `2`…) |
+| `-Position <value>` | `Center`, `Tile`, `Stretch`, `Fit`, `Fill` (default), `Span` |
+| `-BgColor <value>` | `Black` (default), `White`, `Gray`, `Dark Gray`, `Navy`, `Dark Green`, `Maroon` |
+
+#### SPI options
+
+| Option | Description |
+|---|---|
+| `-DisplayMode <mode>` | `fullscreen` (default) or `tile` |
+| `-Stretch` | Stretch the image to fill the screen (fullscreen only) |
+| `-Spanned` | Span across all monitors |
+
+#### Registry options
+
+| Option | Description |
+|---|---|
+| `-DisplayMode <mode>` | `fullscreen` (default) or `tile` |
+
+#### Examples
+
+Apply on the current monitor (COM, Fill):
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\path\to\image.jpg"
+.\wallpaper_setter.ps1 -Path "C:\images\wallpaper.jpg"
 ```
 
-Apply on a specific monitor (e.g., monitor 1):
+Apply on the primary monitor with Fit position:
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\path\to\image.jpg" -Monitor 1
+.\wallpaper_setter.ps1 -Path "C:\images\wallpaper.jpg" -Method COM -Monitor primary -Position Fit
 ```
 
-Apply as single spanned image across all monitors:
+Apply on monitor 1 with a navy background:
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\path\to\image.jpg" -Spanned
+.\wallpaper_setter.ps1 -Path "C:\images\wallpaper.jpg" -Method COM -Monitor 1 -BgColor Navy
 ```
 
-Apply an image in fullscreen centered mode:
+Span across all monitors:
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\Users\MyUser\Pictures\image.jpg" -DisplayMode fullscreen
+.\wallpaper_setter.ps1 -Path "C:\images\wallpaper.jpg" -Method COM -Position Span
 ```
 
-Apply an image in fullscreen stretched mode:
+Apply via SPI in tile mode:
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\Users\MyUser\Pictures\image.jpg" -DisplayMode fullscreen -Stretch
+.\wallpaper_setter.ps1 -Path "C:\images\wallpaper.jpg" -Method SPI -DisplayMode tile
 ```
 
-Apply an image in tile mode (repeat):
+Apply via SPI spanned across all monitors:
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\Users\MyUser\Pictures\image.jpg" -DisplayMode tile
+.\wallpaper_setter.ps1 -Path "C:\images\wallpaper.jpg" -Method SPI -Spanned
 ```
 
-Apply an image using the registry method:
+Apply via the Registry method:
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\Users\MyUser\Pictures\image.jpg" -UseRegistryMethod
+.\wallpaper_setter.ps1 -Path "C:\images\wallpaper.jpg" -Method Registry
 ```
 
-View help:
+Display help:
 ```powershell
 .\wallpaper_setter.ps1 -Help
 ```
 
 ## How It Works
 
-WSB bypasses the standard Windows Settings GUI by directly modifying wallpaper configuration:
+WSB bypasses the standard Windows Settings GUI by directly modifying wallpaper configuration through three independent methods:
 
-1. **GUI Mode**: Launches an interactive window using Windows Forms to select and configure wallpaper settings
-2. **Display Modes**:
-   - **Tile**: Repeats the image across the entire screen (WallpaperStyle=1, TileWallpaper=1)
-   - **Fullscreen Fitted**: Displays the image fitted to screen while keeping aspect ratio (WallpaperStyle=6, TileWallpaper=0)
-   - **Fullscreen Stretched**: Displays the image stretched to fill the screen (WallpaperStyle=2, TileWallpaper=0)
-3. **Dual Method Approach**:
-   - **Default Method**: Uses the `IDesktopWallpaper` COM interface for per-monitor wallpaper, with fallback to `SystemParametersInfo` on failure
-   - **Registry Method**: Directly manipulates Windows registry settings:
-     - `Wallpaper`: Path to the wallpaper image
-     - `WallpaperStyle`: 1 for tile, 2 for stretch, 6 for fitted
-     - `TileWallpaper`: 1 for tiling, 0 for no tiling
-4. **Fallback Strategy**: If the default method fails in GUI mode, automatically offers to try the registry method
-5. **Desktop Refresh**: Triggers immediate wallpaper display without requiring system restart
+**COM method** — The most feature-rich. Uses the `IDesktopWallpaper` COM interface exposed by the Windows Shell. Enables per-monitor addressing (via device path), six position styles, and desktop background color control. This is the native approach on Windows 8 and later, but it is frequently blocked by Group Policy in managed environments (corporate networks, schools, kiosk setups).
+
+**SPI method** — Uses the classic Win32 `SystemParametersInfo` call (`SPI_SETDESKWALLPAPER`). First writes the desired style to the registry (`HKCU\Control Panel\Desktop`), then triggers the update via the API. Global application only — all monitors receive the same image. Rarely blocked, making it the best fallback when COM is unavailable.
+
+**Registry method** — Writes `Wallpaper`, `WallpaperStyle`, and `TileWallpaper` values directly into `HKCU\Control Panel\Desktop`, then forces a desktop refresh. Limited feature set (fullscreen or tile only, no per-monitor support). Use as a last resort.
+
+In all cases, the change is applied immediately — no restart or logoff required.
 
 ## Troubleshooting
 
 ### PowerShell execution policy error?
 
-If you see "File cannot be loaded because running scripts is disabled", use the launcher batch file instead:
-
+Use the launcher batch file:
 ```cmd
 launcher.bat
 ```
-
-This bypasses execution policy restrictions. Alternatively, enable script execution:
-
+Or enable script execution for the current user:
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope CurrentUser
 ```
 
 ### Image not applying?
 
-- Check that the image file path is correct
-- Verify the image file is in a supported format and not corrupted
-- Try using the `-UseRegistryMethod` flag if the default method doesn't work
-- Ensure the Windows Registry is accessible (not restricted by group policies)
+- Check that the image file path is correct and that the format is supported
+- If COM fails (restricted environment), try the SPI method
+- If SPI also fails, try the Registry method
+- Check the console for detailed error messages
 
-### Registry method is slow or not working?
+### Background color not applying?
 
-The registry method may take a moment to refresh the wallpaper. If it doesn't apply immediately:
-
-- Wait a few seconds and the wallpaper should update
-- Try applying again, sometimes the registry method requires multiple attempts to take effect
-- Use the launcher batch file if execution policy is preventing the PowerShell script from running
+Background color is a COM-exclusive feature. It is not available with SPI or Registry. If COM is blocked in your environment, the background color cannot be changed through WSB.
 
 ### Preview not loading?
 
-The preview may fail to load for unsupported formats. You can still apply the wallpaper using the image file path.
+The preview may fail to load for unsupported formats or corrupted files. You can still apply the wallpaper by entering the file path manually.
 
 ## Notes
 
-- The application stores the wallpaper path in your user registry
+- The application stores the wallpaper path in your user registry (`HKCU\Control Panel\Desktop`)
 - Network paths (UNC paths) are supported for image files
 - Image files are validated before processing to detect corruption
+- In GUI mode, the `i` button provides access to a full method reference directly within the application
 
 ## License
 
@@ -207,6 +228,5 @@ Contributions, improvements, and pull requests are welcome and greatly appreciat
 - Report issues
 - Submit pull requests with improvements
 - Suggest new features
-- etc
 
 Enjoy!

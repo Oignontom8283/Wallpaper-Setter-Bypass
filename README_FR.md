@@ -2,10 +2,9 @@
 
 <img src="https://img.shields.io/badge/Target-Windows-green?style=flat" alt="Target Hardware"/> &nbsp; <img src="https://img.shields.io/github/v/release/Oignontom8283/Wallpaper-Setter-Bypass?include_prereleases&style=flat&logo=github" alt="Version"/>
 
-
 **Français** | [English](README.md)
 
-Application PowerShell qui contourne l'interface native de Windows pour définir les fonds d'écran directement avec options avancées de mise à l'échelle et de style. Fonctionne sans privilèges administrateur.
+Application PowerShell qui contourne l'interface native de Windows pour définir les fonds d'écran directement avec options avancées de mise à l'échelle, de style et de couleur d'arrière-plan. Fonctionne sans privilèges administrateur.
 
 ![Illustration of WSB GUI](./assets/gui.png)
 
@@ -14,15 +13,16 @@ Application PowerShell qui contourne l'interface native de Windows pour définir
 
 ## Fonctionnalités
 
-- [x] **Support Dual Méthode** : Choisir entre la Windows API native ou la manipulation du registre
+- [x] **Support Triple Méthode** : Choisir entre la méthode COM (IDesktopWallpaper), l'API Win32 classique (SPI) ou la manipulation directe du registre
 - [x] **Mode GUI** : Interface graphique interactive pour une sélection facile du fond d'écran
 - [x] **Mode CLI** : Interface en ligne de commande pour l'automatisation et les scripts
 - [x] **Validation d'image** : Validation automatique pour détecter les fichiers image corrompus ou invalides
-- [x] **Modes d'affichage** : Choisir entre Tiler (répétition) ou Plein écran
-- [x] **Options d'étirement** : En mode plein écran, choisir entre centré ou étiré
-- [x] **Support Multi-Moniteur** : Appliquer les fonds d'écran sur des/un moniteur(s) spécifique(s) ou étendre une seule image sur tous les écrans
-- [x] **Aperçu d'image** : Aperçu en direct de l'image sélectionnée avant application
-- [x] **Pas de Droits Admin** : Fonctionne sans privilèges administrateur en utilisant les méthodes basées sur le registre
+- [x] **Modes d'affichage** : Center, Tile, Stretch, Fit, Fill, Span (selon la méthode choisie)
+- [x] **Couleur d'arrière-plan** : Sélection et aperçu en direct de la couleur de bureau affichée derrière le fond d'écran (méthode COM uniquement)
+- [x] **Support Multi-Moniteur** : Appliquer le fond d'écran sur un moniteur spécifique, tous les moniteurs, ou étendre une seule image sur tous les écrans (méthode COM)
+- [x] **Aperçu d'image** : Aperçu 16:9 en direct de l'image sélectionnée avant application
+- [x] **Pas de Droits Admin** : Fonctionne sans privilèges administrateur
+- [x] **Référence des méthodes** : Bouton d'information intégré expliquant en détail chaque méthode et ses cas d'usage
 
 ## Formats d'image supportés
 
@@ -35,7 +35,7 @@ Application PowerShell qui contourne l'interface native de Windows pour définir
 ## Configuration requise
 
 - Windows 7 ou version ultérieure
-- PowerShell 3.0 ou version ultérieure
+- PowerShell 5.1 ou version ultérieure
 - Aucun droit spécial requis
 
 ## Utilisation
@@ -56,150 +56,166 @@ Ou exécutez directement le script PowerShell :
 
 Cela ouvre une fenêtre où vous pouvez :
 
-1. Cliquer sur **`Browse...`** pour sélectionner un fichier image
-2. Voir l'aperçu de l'image sur le côté droit
-3. Sélectionner le moniteur cible :
-   - **Current (Actuel)** : Le moniteur où se trouve la fenêtre de l'application
-   - **Primary (Principal)** : Le moniteur système principal
-   - **DISPLAY#** : Moniteur spécifique par son nom matériel
-   - **All (Tous)** : Appliquer la même image à tous les moniteurs
-   - **Spanned (Étendue)** : Étendre une seule image sur tous les moniteurs connectés
-4. Sélectionner le mode d'affichage :
-   - **Tile (répéter)** : Répète l'image sur tout l'écran
-   - **Full screen** : Affiche l'image en plein écran
-5. En mode plein écran, cocher les options souhaitées :
-   - **Stretch to fill (Étirer l'image)** : Étire l'image pour remplir tout l'écran (sinon elle sera ajustée en conservant les proportions)
-6. Cocher les autres options :
-   - **Use Registry method (Manipulation du registre)** : Utiliser la manipulation du registre au lieu de l'API Windows native (essayer ceci si la méthode par défaut échoue)
-7. Cliquer sur **`Apply`** pour définir le fond d'écran
-8. Cliquer sur **`Exit`** pour fermer sans appliquer les modifications
+1. Cliquer sur **`Browse…`** pour sélectionner un fichier image
+2. Voir l'aperçu 16:9 de l'image sur le côté droit
+3. Choisir la **méthode** d'application :
+   - **COM** *(recommandé)* : Méthode moderne via l'interface Shell Windows, avec support par moniteur, styles avancés et couleur d'arrière-plan
+   - **SPI** : API Win32 classique, application globale sur tous les moniteurs, rarement bloquée en environnement géré
+   - **Registry** : Écriture directe dans le registre, dernier recours si COM et SPI échouent
+4. Configurer les **options** selon la méthode choisie (voir détails ci-dessous)
+5. *(Méthode COM uniquement)* Modifier la **couleur d'arrière-plan** via le bouton `Change…` — visible derrière le fond d'écran quand il ne couvre pas tout l'écran
+6. Cliquer sur **`Apply`** pour définir le fond d'écran
+7. Cliquer sur **`Exit`** pour fermer sans appliquer
+8. Cliquer sur **`i`** pour consulter la référence détaillée des méthodes
+
+#### Options par méthode
+
+**COM** — `IDesktopWallpaper` (par défaut)
+
+| Option | Valeurs | Description |
+|---|---|---|
+| Monitor | `current`, `primary`, `all`, index numérique | Moniteur cible. `current` = moniteur sous le curseur |
+| Position | `Center`, `Tile`, `Stretch`, `Fit`, `Fill`, `Span` | Style d'affichage |
+| Background color | `Black`, `White`, `Gray`, `Dark Gray`, `Navy`, `Dark Green`, `Maroon`, `Custom…` | Couleur affichée derrière l'image |
+
+**SPI** — `SystemParametersInfo`
+
+| Option | Valeurs | Description |
+|---|---|---|
+| Display mode | `fullscreen`, `tile` | Style d'affichage global |
+| Stretch to fill | case à cocher | Étire l'image (mode fullscreen uniquement) |
+| Span across all monitors | case à cocher | Traite tous les moniteurs comme un seul canvas |
+
+**Registry** — Écriture directe
+
+| Option | Valeurs | Description |
+|---|---|---|
+| Display mode | `fullscreen`, `tile` | Style d'affichage (fullscreen = WallpaperStyle 6, tile = WallpaperStyle 1) |
 
 ### Mode CLI (Ligne de commande)
-
-Utilisez la syntaxe suivante pour l'utilisation en ligne de commande :
 
 ```powershell
 .\wallpaper_setter.ps1 -Path "C:\chemin\vers\image.jpg" [Options]
 ```
 
-#### Options :
-- `-Path <chemin>` (obligatoire) : Chemin complet du fichier image
-- `-DisplayMode <mode>` : Mode d'affichage : 'tile' (répétition) ou 'fullscreen' (plein écran, défaut)
-- `-Monitor <moniteur>` : Moniteur cible : 'primary', 'all', ou index (ex: '0', '1'). Par défaut 'primary'.
-- `-Stretch` : Étirer l'image pour remplir l'écran (mode plein écran uniquement)
-- `-Spanned` : Appliquer l'image étendue sur tous les moniteurs
-- `-UseRegistryMethod` : Utiliser la méthode de manipulation du registre au lieu de l'API native
-- `-Help` : Afficher le message d'aide
+#### Options communes
 
-<br>
-Note : La méthode Registre (qui désactive l'option de sélection du moniteur) applique le fond d'écran globalement sur tous les écrans en utilisant les routines de redimensionnement Windows héritées.
-<br>
+| Option | Description |
+|---|---|
+| `-Path <chemin>` | Chemin complet du fichier image *(obligatoire pour le mode CLI)* |
+| `-Method <méthode>` | Méthode : `COM` (défaut), `SPI`, `Registry` |
+| `-Help` | Afficher le message d'aide |
 
-#### Exemples :
+#### Options COM
 
-Appliquer sur le moniteur principal :
+| Option | Description |
+|---|---|
+| `-Monitor <valeur>` | `primary` (défaut), `all`, `current`, ou index numérique (`0`, `1`, `2`…) |
+| `-Position <valeur>` | `Center`, `Tile`, `Stretch`, `Fit`, `Fill` (défaut), `Span` |
+| `-BgColor <valeur>` | `Black` (défaut), `White`, `Gray`, `Dark Gray`, `Navy`, `Dark Green`, `Maroon` |
+
+#### Options SPI
+
+| Option | Description |
+|---|---|
+| `-DisplayMode <mode>` | `fullscreen` (défaut) ou `tile` |
+| `-Stretch` | Étirer l'image (fullscreen uniquement) |
+| `-Spanned` | Étendre sur tous les moniteurs |
+
+#### Options Registry
+
+| Option | Description |
+|---|---|
+| `-DisplayMode <mode>` | `fullscreen` (défaut) ou `tile` |
+
+#### Exemples
+
+Appliquer sur le moniteur courant (COM, Fill) :
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\chemin\vers\image.jpg"
+.\wallpaper_setter.ps1 -Path "C:\images\fond.jpg"
 ```
 
-Appliquer sur un moniteur spécifique (ex: moniteur 1) :
+Appliquer sur le moniteur principal avec position Fit :
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\chemin\vers\image.jpg" -Monitor 1
+.\wallpaper_setter.ps1 -Path "C:\images\fond.jpg" -Method COM -Monitor primary -Position Fit
 ```
 
-Appliquer une image étendue sur tous les moniteurs :
+Appliquer sur le moniteur 1 avec fond bleu marine :
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\chemin\vers\image.jpg" -Spanned
+.\wallpaper_setter.ps1 -Path "C:\images\fond.jpg" -Method COM -Monitor 1 -BgColor Navy
 ```
 
-Appliquer une image en mode plein écran centré :
-
+Étendre sur tous les moniteurs (Span) :
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\Users\MonUtilisateur\Images\image.jpg" -DisplayMode fullscreen
+.\wallpaper_setter.ps1 -Path "C:\images\fond.jpg" -Method COM -Position Span
 ```
 
-Appliquer une image en mode plein écran étiré :
-
+Appliquer via SPI en mode tile :
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\Users\MonUtilisateur\Images\image.jpg" -DisplayMode fullscreen -Stretch
+.\wallpaper_setter.ps1 -Path "C:\images\fond.jpg" -Method SPI -DisplayMode tile
 ```
 
-Appliquer une image en mode Tiler (répétition) :
-
+Appliquer via SPI étendu sur tous les moniteurs :
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\Users\MonUtilisateur\Images\image.jpg" -DisplayMode tile
+.\wallpaper_setter.ps1 -Path "C:\images\fond.jpg" -Method SPI -Spanned
 ```
 
-Appliquer une image en utilisant la méthode Registre :
-
+Appliquer via la méthode Registre :
 ```powershell
-.\wallpaper_setter.ps1 -Path "C:\Users\MonUtilisateur\Images\image.jpg" -UseRegistryMethod
+.\wallpaper_setter.ps1 -Path "C:\images\fond.jpg" -Method Registry
 ```
 
 Afficher l'aide :
-
 ```powershell
 .\wallpaper_setter.ps1 -Help
 ```
 
 ## Comment ça fonctionne
 
-WSB contourne l'interface graphique Windows standard en modifiant directement la configuration du fond d'écran :
+WSB contourne l'interface graphique Windows standard en modifiant directement la configuration du fond d'écran via trois méthodes indépendantes :
 
-1. **Mode GUI** : Lance une fenêtre interactive utilisant Windows Forms pour sélectionner et configurer les paramètres du fond d'écran
-2. **Modes d'affichage** :
-   - **Tiler** : Répète l'image sur tout l'écran (WallpaperStyle=1, TileWallpaper=1)
-   - **Plein écran centré** : Affiche l'image ajustée sans répétition (WallpaperStyle=6, TileWallpaper=0)
-   - **Plein écran étiré** : Affiche l'image étirée pour remplir l'écran (WallpaperStyle=2, TileWallpaper=0)
-3. **Approche Dual Méthode** :
-   - **Méthode par défaut** : Utilise l'interface COM `IDesktopWallpaper` pour définir le fond d'écran par moniteur, avec repli sur `SystemParametersInfo` en cas d'échec
-   - **Méthode Registre** : Manipule directement les paramètres du registre Windows :
-     - `Wallpaper` : Chemin vers l'image de fond d'écran
-     - `WallpaperStyle` : 1 pour tiler, 2 pour étirer, 6 pour ajusté
-     - `TileWallpaper` : 1 pour tiler, 0 pour non-tiler
-4. **Stratégie de Repli** : Si la méthode par défaut échoue en mode GUI, propose automatiquement d'essayer la méthode Registre
-5. **Actualisation du Bureau** : Déclenche l'affichage immédiat du fond d'écran sans nécessiter un redémarrage du système
+**Méthode COM** — La plus complète. Utilise l'interface COM `IDesktopWallpaper` exposée par le Shell Windows. Permet l'adressage par moniteur (via le chemin de périphérique), le choix du style de positionnement parmi six options, et le contrôle de la couleur d'arrière-plan du bureau. C'est la méthode native sur Windows 8 et ultérieur, mais elle est fréquemment bloquée par les stratégies de groupe en environnements managés (entreprises, établissements scolaires, bornes).
+
+**Méthode SPI** — Utilise l'appel Win32 `SystemParametersInfo` (action `SPI_SETDESKWALLPAPER`). Écrit d'abord le style souhaité dans le registre (`HKCU\Control Panel\Desktop`), puis déclenche la mise à jour via l'API. Application globale uniquement (tous les moniteurs reçoivent la même image). Rarement bloquée, c'est le meilleur repli quand COM est indisponible.
+
+**Méthode Registry** — Écrit directement les valeurs `Wallpaper`, `WallpaperStyle` et `TileWallpaper` dans `HKCU\Control Panel\Desktop`, puis force l'actualisation du bureau. Fonctionnalités limitées (fullscreen ou tile uniquement, pas de support par moniteur). À utiliser en dernier recours.
+
+Dans tous les cas, l'actualisation est immédiate — aucun redémarrage ni déconnexion n'est nécessaire.
 
 ## Dépannage
 
 **Erreur de politique d'exécution PowerShell ?**
 
-Si vous voyez "Le fichier ne peut pas être chargé car l'exécution de scripts est désactivée", utilisez le fichier launcher batch à la place :
-
+Utilisez le fichier launcher batch :
 ```cmd
 launcher.bat
 ```
-
-Cela contourne les restrictions de politique d'exécution. Alternativement, activez l'exécution de scripts :
-
+Ou autorisez l'exécution pour l'utilisateur courant :
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope CurrentUser
 ```
 
 **L'image n'est pas appliquée ?**
 
-- Vérifiez que le chemin du fichier image est correct
-- Assurez-vous que le fichier image est dans un format supporté et non corrompu
-- Essayez d'utiliser le flag `-UseRegistryMethod` si la méthode par défaut ne fonctionne pas
-- Assurez-vous que le Registre Windows est accessible (non restreint par les stratégies de groupe)
+- Vérifiez que le chemin du fichier image est correct et que le format est supporté
+- Si la méthode COM échoue (environnement restreint), essayez la méthode SPI
+- Si SPI échoue également, essayez la méthode Registry
+- Consultez la console pour les messages d'erreur détaillés
 
-**La méthode Registre est lente ou ne fonctionne pas ?**
+**La couleur d'arrière-plan ne s'applique pas ?**
 
-La méthode registre peut prendre un moment pour actualiser le fond d'écran. Si cela ne s'applique pas immédiatement :
-
-- Attendez quelques secondes et le fond d'écran devrait se mettre à jour
-- Essayez d'appliquer à nouveau, parfois la méthode registre nécessite plusieurs tentatives pour prendre effet
-- Utilisez le fichier launcher batch si la politique d'exécution empêche le script PowerShell de s'exécuter
+La couleur d'arrière-plan est une fonctionnalité exclusive à la méthode COM. Elle n'est pas disponible avec SPI ou Registry. Si COM est bloqué dans votre environnement, la couleur d'arrière-plan ne peut pas être modifiée via WSB.
 
 **L'aperçu ne se charge pas ?**
 
-L'aperçu peut ne pas se charger pour les formats non supportés. Vous pouvez toujours appliquer le fond d'écran en utilisant le chemin du fichier image.
+L'aperçu peut ne pas se charger pour les formats non supportés ou les fichiers corrompus. Vous pouvez toujours appliquer le fond d'écran en saisissant le chemin manuellement.
 
 ## Notes
 
-- L'application stocke le chemin du fond d'écran dans votre registre utilisateur
-- Les chemins réseau (chemins UNC) sont supportés pour les fichiers image
-- Les fichiers image sont validés avant traitement pour détecter les corruptions
+- L'application stocke le chemin du fond d'écran dans votre registre utilisateur (`HKCU\Control Panel\Desktop`)
+- Les chemins réseau (chemins UNC) sont supportés
+- Les fichiers image sont validés avant traitement
+- En mode GUI, le bouton `i` donne accès à une référence complète des méthodes directement dans l'application
 
 ## Licence
 
@@ -207,11 +223,10 @@ Ce projet est distribué sous la **Licence LGPL v3 (GNU Lesser General Public Li
 
 ## Contributions
 
-Les contributions, améliorations et pull requests sont acceptées avec plaisir et grandement appréciées ! N'hésitez pas à :
+Les contributions, améliorations et pull requests sont acceptées avec plaisir ! N'hésitez pas à :
 
 - Signaler des problèmes
 - Soumettre des pull requests avec des améliorations
 - Suggérer de nouvelles fonctionnalités
-- etc
 
 Merci pour l'aide !
